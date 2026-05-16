@@ -10,6 +10,13 @@
 
 # production
 /build
+/dist
+
+# vite
+*.local
+
+# editor / TS
+*.tsbuildinfo
 
 # misc
 .DS_Store

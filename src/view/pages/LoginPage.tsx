@@ -33,7 +33,7 @@ function LoginPage() {
       >
         <Box
           component="img"
-          src={`${process.env.PUBLIC_URL}/logo192.png`}
+          src={`${import.meta.env.BASE_URL}logo192.png`}
           alt="Quicksilver Logo"
           sx={{
             width: 120,

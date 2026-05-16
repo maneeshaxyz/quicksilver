@@ -2,8 +2,6 @@
 
 A modern React-based email client implementing the Email 2.0 vision.
 
-Prototype: <https://nuuuwan.github.io/quicksilver>
-
 ## The Vision: Email 2.0
 
 Email 2.0 reimagines email as something an order of magnitude more productive and user-friendly than current email systems. The vision integrates:
@@ -24,10 +22,44 @@ See [docs/Email-2.md](docs/Email-2.md) for the complete vision.
 
 ## Technology Stack
 
-- React
+- React 19 + TypeScript
+- Vite (build tool & dev server)
+- MUI (Material UI) for components
 - Modern UI/UX frameworks
 - Offline-first architecture
 - End-to-end encryption support
+
+## Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 18+ (LTS recommended)
+- npm 9+ (comes with Node)
+
+### Install
+
+```bash
+npm install
+```
+
+### Available Scripts
+
+| Command             | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `npm run dev`       | Start the Vite dev server with HMR (default: http://localhost:3000/quicksilver/) |
+| `npm start`         | Alias for `npm run dev`                                      |
+| `npm run build`     | Build the production bundle to `build/`                      |
+| `npm run preview`   | Preview the production build locally                         |
+| `npm run typecheck` | Run the TypeScript compiler in `--noEmit` mode (no build)    |
+
+### Quick start
+
+```bash
+npm install
+npm run dev
+```
+
+Then open http://localhost:3000/quicksilver/ in your browser.
 
 ## Development Roadmap
 
