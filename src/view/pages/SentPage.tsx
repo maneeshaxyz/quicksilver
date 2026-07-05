@@ -15,6 +15,7 @@ function SentPage() {
     nextPage,
     prevPage,
     refreshFolder,
+    prefetchMessages,
   } = useData();
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -48,6 +49,7 @@ function SentPage() {
         onNext={searchQuery ? undefined : () => nextPage("sent")}
         onPrev={searchQuery ? undefined : () => prevPage("sent")}
         onRefresh={searchQuery ? undefined : () => refreshFolder("sent")}
+        onPrefetch={prefetchMessages}
       />
     </AppLayout>
   );

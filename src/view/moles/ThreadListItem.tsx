@@ -4,7 +4,7 @@ import { getInitials } from "../_constants/avatarUtils";
 import Timestamp from "../atoms/Timestamp";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 
-const ThreadListItem = ({ thread, isSelected = false, onClick }) => {
+const ThreadListItem = ({ thread, isSelected = false, onClick, onPrefetch = undefined }) => {
   const {
     id,
     subject,
@@ -21,6 +21,10 @@ const ThreadListItem = ({ thread, isSelected = false, onClick }) => {
   return (
     <Box
       onClick={() => onClick(id)}
+      // Predictive prefetch (proposal §7): warm this thread's body into the
+      // cache the moment the pointer/focus lands on it, so the open is instant.
+      onMouseEnter={onPrefetch ? () => onPrefetch(id) : undefined}
+      onFocus={onPrefetch ? () => onPrefetch(id) : undefined}
       sx={{
         display: "flex",
         gap: 2,

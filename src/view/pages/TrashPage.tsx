@@ -15,6 +15,7 @@ function TrashPage() {
     nextPage,
     prevPage,
     refreshFolder,
+    prefetchMessages,
   } = useData();
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -48,6 +49,7 @@ function TrashPage() {
         onNext={searchQuery ? undefined : () => nextPage("trash")}
         onPrev={searchQuery ? undefined : () => prevPage("trash")}
         onRefresh={searchQuery ? undefined : () => refreshFolder("trash")}
+        onPrefetch={prefetchMessages}
       />
     </AppLayout>
   );

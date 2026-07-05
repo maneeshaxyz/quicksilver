@@ -8,7 +8,7 @@ import FloatingActionButton from "../atoms/FloatingActionButton";
 import { useData } from "../../nonview/core/DataContext";
 
 function InboxPage() {
-  const { threads, loading, page, total, pageSize, pageLoading, nextPage, prevPage, refreshFolder, realtimeConnected } =
+  const { threads, loading, page, total, pageSize, pageLoading, nextPage, prevPage, refreshFolder, realtimeConnected, prefetchMessages } =
     useData();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -44,6 +44,7 @@ function InboxPage() {
         onPrev={searchQuery ? undefined : () => prevPage("inbox")}
         onRefresh={searchQuery ? undefined : () => refreshFolder("inbox")}
         live={realtimeConnected}
+        onPrefetch={prefetchMessages}
       />
       <FloatingActionButton
         icon={EditIcon}

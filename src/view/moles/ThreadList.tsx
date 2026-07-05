@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import ThreadListItem from "./ThreadListItem";
 import EmptyState from "../atoms/EmptyState";
+import ThreadListSkeleton from "../atoms/ThreadListSkeleton";
 
 // Approximate height of one ThreadListItem (avatar + three text rows + padding).
 // react-virtual uses this only for the initial layout estimate; real heights
@@ -32,6 +33,9 @@ const ThreadList = ({
   // When true, a small "Live" indicator shows that the realtime SSE stream is
   // connected and new mail will push in without a manual refresh (Phase 4).
   live = undefined,
+  // Predictive prefetch (proposal §7): (threadId) => Promise. Wired to row
+  // hover/focus, plus a top-of-list warm-up during idle time below.
+  onPrefetch = undefined,
 }) => {
   const navigate = useNavigate();
   const parentRef = useRef(null);
@@ -53,6 +57,25 @@ const ThreadList = ({
     if (parentRef.current) parentRef.current.scrollTop = 0;
   }, [page]);
 
+  // Predictive prefetch of the top few threads (proposal §7). The messages at
+  // the top of a folder are the ones a user is most likely to open, so warm
+  // their bodies into the cache during idle time — off the critical render
+  // path, and deduped/cache-guarded inside onPrefetch so it's cheap to repeat.
+  useEffect(() => {
+    if (!onPrefetch || !threads?.length) return;
+    const ids = threads.slice(0, 3).map((t) => t.id);
+    const ric =
+      window.requestIdleCallback ||
+      ((cb) =>
+        window.setTimeout(
+          () => cb({ didTimeout: false, timeRemaining: () => 0 }),
+          200,
+        ));
+    const cic = window.cancelIdleCallback || window.clearTimeout;
+    const handle = ric(() => ids.forEach((id) => void onPrefetch(id)));
+    return () => cic(handle);
+  }, [threads, onPrefetch]);
+
   const rowVirtualizer = useVirtualizer({
     count: threads?.length || 0,
     getScrollElement: () => parentRef.current,
@@ -63,18 +86,7 @@ const ThreadList = ({
   });
 
   if (loading) {
-    return (
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          p: 3,
-        }}
-      >
-        <CircularProgress />
-      </Box>
-    );
+    return <ThreadListSkeleton />;
   }
 
   if (!threads || threads.length === 0) {
@@ -212,6 +224,7 @@ const ThreadList = ({
                   thread={thread}
                   isSelected={thread.id === selectedThreadId}
                   onClick={handleThreadClick}
+                  onPrefetch={onPrefetch}
                 />
               </Box>
             );
