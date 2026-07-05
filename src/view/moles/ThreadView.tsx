@@ -1,6 +1,7 @@
 import React from "react";
-import { Box, CircularProgress } from "@mui/material";
+import { Box } from "@mui/material";
 import MessageGroup from "./MessageGroup";
+import MessageSkeleton from "../atoms/MessageSkeleton";
 
 const groupMessages = (messages = []) => {
   const groups = [];
@@ -21,18 +22,7 @@ const groupMessages = (messages = []) => {
 
 const ThreadView = ({ thread, messages = [], loading = false }) => {
   if (loading) {
-    return (
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          p: 3,
-        }}
-      >
-        <CircularProgress />
-      </Box>
-    );
+    return <MessageSkeleton />;
   }
 
   const groups = groupMessages(messages);

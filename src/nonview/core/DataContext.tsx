@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import { useAuth } from "./AuthContext";
+import { parseBody } from "./messageParser";
 import { mailboxes as mailboxesAPI, messages as messagesAPI } from "../api/endpoints";
 import {
   readThreads,
@@ -107,6 +108,10 @@ interface DataContextValue {
   getMessages: (threadId: string) => Promise<ThreadMessage[]>;
   // Cache-first body read; returns null if nothing is cached for the thread.
   getCachedMessages: (threadId: string) => Promise<ThreadMessage[] | null>;
+  // Speculatively fetch and cache a thread's body before the user opens it
+  // (proposal §7, predictive prefetching). Best-effort, deduped, and a no-op
+  // when the body is already cached.
+  prefetchMessages: (threadId: string) => Promise<void>;
   sendEmail: (data: EmailData) => Promise<{ status: string }>;
   saveDraft: (data: DraftData) => Promise<Thread>;
   deleteThread: (threadId: string) => Promise<void>;
@@ -184,13 +189,15 @@ function parseThreadID(id: string): { mailbox: string; uid: number } | null {
   return { mailbox, uid };
 }
 
-function messageToThreadMessage(m: Message): ThreadMessage {
+// Builds the UI-facing message from the API DTO. `content` is the plain-text
+// representation — always supplied for screen readers, search, and the case
+// where the recipient blocks HTML rendering — and is derived off the main
+// thread by the parsing worker (see parseBody) before this is called.
+function messageToThreadMessage(m: Message, content: string): ThreadMessage {
   const sender = m.from?.[0];
   return {
     id: m.message_id || `msg-${m.uid}`,
-    // Always supply a plain-text representation for screen readers, search,
-    // and the case where the recipient blocks HTML rendering.
-    content: m.body_text || stripHTML(m.body_html || ""),
+    content,
     contentHtml: m.body_html || undefined,
     sender: {
       id: sender?.email || "unknown",
@@ -200,16 +207,6 @@ function messageToThreadMessage(m: Message): ThreadMessage {
     timestamp: m.date,
     isRead: (m.flags || []).includes("\\Seen"),
   };
-}
-
-// Lightweight HTML stripper for plain-text fallback. Not a sanitiser.
-function stripHTML(s: string): string {
-  return s
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 interface DataProviderProps {
@@ -649,11 +646,41 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     async (threadId: string): Promise<ThreadMessage[]> => {
       const parsed = parseThreadID(threadId);
       if (!parsed) return [];
-      // Fetch from the network and refresh the cache.
+      // Fetch from the network and refresh the cache. Body text extraction runs
+      // in the parsing worker so a large HTML email doesn't jank the read view.
       const msg = await messagesAPI.get(apiClient, parsed.mailbox, parsed.uid);
-      const tm = messageToThreadMessage(msg);
+      const content = await parseBody(msg.body_text, msg.body_html);
+      const tm = messageToThreadMessage(msg, content);
       void writeBody(account, threadId, tm);
       return [tm];
+    },
+    [apiClient, account],
+  );
+
+  // In-flight prefetch guard: dedupes concurrent prefetch requests for the same
+  // thread so hover + top-of-list prefetch never double-fetch the same body.
+  const prefetching = useRef<Set<string>>(new Set());
+
+  const prefetchMessages = useCallback(
+    async (threadId: string): Promise<void> => {
+      const parsed = parseThreadID(threadId);
+      // Skip local-only drafts (uid 0) and malformed ids.
+      if (!parsed || parsed.uid <= 0) return;
+      if (prefetching.current.has(threadId)) return;
+      // Already cached → nothing to prefetch.
+      if (await readBody(account, threadId)) return;
+
+      prefetching.current.add(threadId);
+      try {
+        const msg = await messagesAPI.get(apiClient, parsed.mailbox, parsed.uid);
+        const content = await parseBody(msg.body_text, msg.body_html);
+        await writeBody(account, threadId, messageToThreadMessage(msg, content));
+      } catch {
+        // Prefetch is best-effort; a failure just means the real open pays the
+        // network cost as usual.
+      } finally {
+        prefetching.current.delete(threadId);
+      }
     },
     [apiClient, account],
   );
@@ -842,6 +869,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     getThread,
     getMessages,
     getCachedMessages,
+    prefetchMessages,
     sendEmail,
     saveDraft,
     deleteThread,
