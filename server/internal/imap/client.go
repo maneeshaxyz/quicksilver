@@ -511,6 +511,88 @@ func (c *Client) GetMessage(ctx context.Context, mailbox string, uid uint32) (*h
 // ErrNotFound is returned when an operation cannot locate the requested item.
 var ErrNotFound = errors.New("not found")
 
+// GetAttachment fetches the raw bytes and metadata of a single attachment,
+// identified by the ID that parseRFC822 assigns during a message read
+// ("att-1", "att-2", ... in order of appearance). Returns ErrNotFound if the
+// message or that attachment index no longer exists.
+func (c *Client) GetAttachment(ctx context.Context, mailbox string, uid uint32, attachmentID string) (hmail.AttachmentMeta, []byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.ensureLive(ctx); err != nil {
+		return hmail.AttachmentMeta{}, nil, err
+	}
+	if err := c.selectMailbox(mailbox, true); err != nil {
+		return hmail.AttachmentMeta{}, nil, err
+	}
+	seq := new(imap.SeqSet)
+	seq.AddNum(uid)
+	section := &imap.BodySectionName{}
+	items := []imap.FetchItem{section.FetchItem()}
+	msgs := make(chan *imap.Message, 1)
+	fetchDone := make(chan error, 1)
+	go func() { fetchDone <- c.conn.UidFetch(seq, items, msgs) }()
+
+	var raw *imap.Message
+	for m := range msgs {
+		raw = m
+	}
+	if err := <-fetchDone; err != nil {
+		return hmail.AttachmentMeta{}, nil, fmt.Errorf("fetch message: %w", err)
+	}
+	if raw == nil {
+		return hmail.AttachmentMeta{}, nil, ErrNotFound
+	}
+	body := raw.GetBody(section)
+	if body == nil {
+		return hmail.AttachmentMeta{}, nil, ErrNotFound
+	}
+	return extractAttachment(body, attachmentID)
+}
+
+// extractAttachment walks a raw RFC822 message and returns the bytes + metadata
+// of the attachment whose 1-based index matches id ("att-N"). The counting must
+// stay identical to parseRFC822 so IDs handed to the client resolve back to the
+// same part.
+func extractAttachment(r io.Reader, id string) (hmail.AttachmentMeta, []byte, error) {
+	mr, err := gomail.CreateReader(r)
+	if err != nil {
+		return hmail.AttachmentMeta{}, nil, ErrNotFound
+	}
+	defer mr.Close()
+
+	n := 0
+	for {
+		p, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return hmail.AttachmentMeta{}, nil, err
+		}
+		h, ok := p.Header.(*gomail.AttachmentHeader)
+		if !ok {
+			continue
+		}
+		n++
+		if fmt.Sprintf("att-%d", n) != id {
+			continue
+		}
+		ct, _, _ := h.ContentType()
+		name, _ := h.Filename()
+		data, err := io.ReadAll(p.Body)
+		if err != nil {
+			return hmail.AttachmentMeta{}, nil, fmt.Errorf("read attachment: %w", err)
+		}
+		return hmail.AttachmentMeta{
+			ID:       id,
+			Filename: name,
+			MIMEType: ct,
+			Size:     int64(len(data)),
+		}, data, nil
+	}
+	return hmail.AttachmentMeta{}, nil, ErrNotFound
+}
+
 // Watch SELECTs mailbox (read-only) and blocks in IMAP IDLE, invoking onChange
 // whenever the server reports activity in that mailbox — a new message, an
 // expunge, or a flag change. It returns when ctx is cancelled (ctx.Err()) or the

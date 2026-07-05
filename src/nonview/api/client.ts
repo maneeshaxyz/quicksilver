@@ -92,6 +92,26 @@ export class APIClient {
     return this.request<T>("GET", path, undefined, { signal });
   }
 
+  // Fetches a binary resource (e.g. an attachment) as a Blob, carrying the auth
+  // header like the JSON methods. Kept separate from request() because the
+  // response isn't JSON and must not be parsed as such.
+  async getBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+    const headers: Record<string, string> = {};
+    const tok = this.getToken();
+    if (tok) headers["Authorization"] = `Bearer ${tok}`;
+
+    const res = await fetch(`${this.baseURL}${path}`, {
+      method: "GET",
+      headers,
+      signal,
+    });
+    if (!res.ok) {
+      if (res.status === 401) this.onUnauthorized();
+      throw new APIError(res.status, "unknown", `request failed (${res.status})`);
+    }
+    return res.blob();
+  }
+
   post<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     return this.request<T>("POST", path, body, { signal });
   }

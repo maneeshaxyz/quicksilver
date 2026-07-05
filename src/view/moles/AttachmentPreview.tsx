@@ -2,10 +2,22 @@ import React from "react";
 import { Box, IconButton } from "@mui/material";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import DownloadIcon from "@mui/icons-material/Download";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import CloseIcon from "@mui/icons-material/Close";
 import AttachmentInfo from "../atoms/AttachmentInfo";
 
-const AttachmentPreview = ({ attachment, onRemove = null, onDownload = null }) => {
+// Which MIME types the in-app viewer can render inline (see AttachmentViewer).
+export function isPreviewable(mimeType = "") {
+  return mimeType.startsWith("image/") || mimeType === "application/pdf";
+}
+
+const AttachmentPreview = ({
+  attachment,
+  onRemove = null,
+  onDownload = null,
+  onPreview = null,
+}) => {
+  const canPreview = !!onPreview && isPreviewable(attachment.mimeType);
   return (
     <Box
       sx={{
@@ -22,6 +34,14 @@ const AttachmentPreview = ({ attachment, onRemove = null, onDownload = null }) =
       <InsertDriveFileIcon color="action" />
       <AttachmentInfo name={attachment.name} size={attachment.size} />
       <Box sx={{ flex: 1 }} />
+      {canPreview && (
+        <IconButton
+          aria-label="preview"
+          onClick={() => onPreview(attachment)}
+        >
+          <VisibilityIcon />
+        </IconButton>
+      )}
       {onDownload && (
         <IconButton
           aria-label="download"

@@ -20,7 +20,13 @@ const groupMessages = (messages = []) => {
   return groups;
 };
 
-const ThreadView = ({ thread, messages = [], loading = false }) => {
+const ThreadView = ({
+  thread,
+  messages = [],
+  loading = false,
+  onDownloadAttachment,
+  onFetchAttachment,
+}) => {
   if (loading) {
     return <MessageSkeleton />;
   }
@@ -34,6 +40,8 @@ const ThreadView = ({ thread, messages = [], loading = false }) => {
           key={`${group.sender?.id}-${index}`}
           messages={group.messages}
           sender={group.sender}
+          onDownloadAttachment={onDownloadAttachment}
+          onFetchAttachment={onFetchAttachment}
         />
       ))}
     </Box>
