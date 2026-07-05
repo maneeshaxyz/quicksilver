@@ -2,7 +2,13 @@ import React from "react";
 import { Box, Typography } from "@mui/material";
 import AttachmentPreview from "./AttachmentPreview";
 
-const AttachmentList = ({ attachments = [], onRemove, editable = true }) => {
+const AttachmentList = ({
+  attachments = [],
+  onRemove = undefined,
+  onDownload = undefined,
+  onPreview = undefined,
+  editable = true,
+}) => {
   if (!attachments.length) return null;
 
   return (
@@ -16,6 +22,8 @@ const AttachmentList = ({ attachments = [], onRemove, editable = true }) => {
             key={attachment.id}
             attachment={attachment}
             onRemove={editable ? onRemove : undefined}
+            onDownload={onDownload}
+            onPreview={onPreview}
           />
         ))}
       </Box>

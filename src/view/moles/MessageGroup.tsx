@@ -3,7 +3,12 @@ import { Box, Avatar } from "@mui/material";
 import { getInitials } from "../_constants/avatarUtils";
 import MessageBubble from "./MessageBubble";
 
-const MessageGroup = ({ messages = [], sender }) => {
+const MessageGroup = ({
+  messages = [],
+  sender,
+  onDownloadAttachment,
+  onFetchAttachment,
+}) => {
   if (!messages.length) return null;
 
   const isSent = sender?.id === "current";
@@ -18,7 +23,13 @@ const MessageGroup = ({ messages = [], sender }) => {
       )}
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} isSent={isSent} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            isSent={isSent}
+            onDownloadAttachment={onDownloadAttachment}
+            onFetchAttachment={onFetchAttachment}
+          />
         ))}
       </Box>
     </Box>

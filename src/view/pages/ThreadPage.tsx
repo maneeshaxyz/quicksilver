@@ -16,6 +16,8 @@ function ThreadPage() {
     getCachedMessages,
     sendMessage,
     markAsRead,
+    downloadAttachment,
+    fetchAttachment,
     loading,
   } = useData();
 
@@ -127,6 +129,12 @@ function ThreadPage() {
             thread={thread}
             messages={messages}
             loading={messagesLoading}
+            onDownloadAttachment={(attachmentId, filename) =>
+              downloadAttachment(threadId, attachmentId, filename)
+            }
+            onFetchAttachment={(attachmentId) =>
+              fetchAttachment(threadId, attachmentId)
+            }
           />
         </Box>
         <Box

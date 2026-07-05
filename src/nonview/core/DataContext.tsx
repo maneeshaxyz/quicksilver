@@ -22,6 +22,7 @@ import {
 } from "../cache/db";
 import type {
   Address,
+  AttachmentMeta,
   Envelope,
   Mailbox,
   Message,
@@ -58,6 +59,7 @@ export interface ThreadMessage {
   sender: Participant;
   timestamp: string;
   isRead: boolean;
+  attachments?: AttachmentMeta[]; // downloadable attachment metadata (no bytes)
 }
 
 interface DraftData {
@@ -112,6 +114,15 @@ interface DataContextValue {
   // (proposal §7, predictive prefetching). Best-effort, deduped, and a no-op
   // when the body is already cached.
   prefetchMessages: (threadId: string) => Promise<void>;
+  // Fetch one attachment's bytes as a Blob (for in-app preview). Caller owns
+  // the returned blob's object-URL lifecycle.
+  fetchAttachment: (threadId: string, attachmentId: string) => Promise<Blob>;
+  // Download one attachment of a thread's message to the user's device.
+  downloadAttachment: (
+    threadId: string,
+    attachmentId: string,
+    filename?: string,
+  ) => Promise<void>;
   sendEmail: (data: EmailData) => Promise<{ status: string }>;
   saveDraft: (data: DraftData) => Promise<Thread>;
   deleteThread: (threadId: string) => Promise<void>;
@@ -206,6 +217,7 @@ function messageToThreadMessage(m: Message, content: string): ThreadMessage {
     },
     timestamp: m.date,
     isRead: (m.flags || []).includes("\\Seen"),
+    attachments: m.attachments && m.attachments.length ? m.attachments : undefined,
   };
 }
 
@@ -685,6 +697,48 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     [apiClient, account],
   );
 
+  const fetchAttachment = useCallback(
+    async (threadId: string, attachmentId: string): Promise<Blob> => {
+      const parsed = parseThreadID(threadId);
+      if (!parsed || parsed.uid <= 0) {
+        throw new Error("attachment unavailable for this message");
+      }
+      return messagesAPI.attachment(
+        apiClient,
+        parsed.mailbox,
+        parsed.uid,
+        attachmentId,
+      );
+    },
+    [apiClient],
+  );
+
+  const downloadAttachment = useCallback(
+    async (
+      threadId: string,
+      attachmentId: string,
+      filename?: string,
+    ): Promise<void> => {
+      const blob = await fetchAttachment(threadId, attachmentId);
+      // Save the blob via a transient object URL + anchor click, then revoke to
+      // free the memory. This keeps the auth header on the request (a plain
+      // <a href> to the API couldn't send the Bearer token).
+      const url = URL.createObjectURL(blob);
+      try {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename || "attachment";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } finally {
+        // Revoke on the next tick so the download has grabbed the URL first.
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      }
+    },
+    [fetchAttachment],
+  );
+
   // Cache-first body read for the read view: returns the cached body instantly
   // (or null on a cold thread) so ThreadPage can paint before the network
   // round-trip completes, then revalidate via getMessages.
@@ -870,6 +924,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     getMessages,
     getCachedMessages,
     prefetchMessages,
+    fetchAttachment,
+    downloadAttachment,
     sendEmail,
     saveDraft,
     deleteThread,

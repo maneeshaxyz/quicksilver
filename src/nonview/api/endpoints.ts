@@ -74,6 +74,23 @@ export const messages = {
   send(client: APIClient, msg: OutgoingMessage) {
     return client.post<{ status: string }>(`${v1}/messages`, msg);
   },
+  // Fetches one attachment's bytes as a Blob. `id` is the server-assigned
+  // attachment id ("att-1", ...) carried in the message's attachment list. The
+  // bytes are identical whether the caller intends to preview or save, so this
+  // serves both paths; the browser Content-Disposition is irrelevant once the
+  // response is read as a Blob.
+  attachment(
+    client: APIClient,
+    mailbox: string,
+    uid: number,
+    id: string,
+    signal?: AbortSignal,
+  ) {
+    return client.getBlob(
+      `${v1}/mailboxes/${encodeURIComponent(mailbox)}/messages/${uid}/attachments/${encodeURIComponent(id)}`,
+      signal,
+    );
+  },
   setFlags(
     client: APIClient,
     mailbox: string,
