@@ -49,7 +49,16 @@ function App() {
                     <MailPage />
                   </ProtectedRoute>
                 }
-              />
+              >
+                <Route
+                  path="thread/:threadId"
+                  element={
+                    <ProtectedRoute>
+                      <ThreadPage />
+                    </ProtectedRoute>
+                  }
+                />
+              </Route>
               <Route
                 path="/inbox"
                 element={
@@ -87,14 +96,6 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <Navigate to="/" replace />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/thread/:threadId"
-                element={
-                  <ProtectedRoute>
-                    <ThreadPage />
                   </ProtectedRoute>
                 }
               />

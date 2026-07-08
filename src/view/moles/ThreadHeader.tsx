@@ -1,5 +1,5 @@
 import React from "react";
-import { Box, IconButton as MuiIconButton, Avatar } from "@mui/material";
+import { Box, IconButton as MuiIconButton, Avatar, useMediaQuery, useTheme } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useNavigate } from "react-router-dom";
 import { getInitials } from "../_constants/avatarUtils";
@@ -8,6 +8,8 @@ import ThreadActions from "./ThreadActions";
 
 const ThreadHeader = ({ thread, onAction = null }) => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const participantName = thread?.participants?.[0]?.name || "Unknown";
 
   return (
@@ -23,9 +25,11 @@ const ThreadHeader = ({ thread, onAction = null }) => {
       }}
     >
       <Box sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
-        <MuiIconButton aria-label="back" onClick={() => navigate(-1)}>
-          <ArrowBackIcon />
-        </MuiIconButton>
+        {!isDesktop && (
+          <MuiIconButton aria-label="back" onClick={() => navigate(-1)}>
+            <ArrowBackIcon />
+          </MuiIconButton>
+        )}
         <Avatar sx={{ width: 40, height: 40 }}>
           {getInitials(participantName)}
         </Avatar>

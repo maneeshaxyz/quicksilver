@@ -92,68 +92,63 @@ function ThreadPage() {
 
   if (loading && !thread) {
     return (
-      <AppLayout title="Thread">
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            p: 3,
-          }}
-        >
-          <CircularProgress />
-        </Box>
-      </AppLayout>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          p: 3,
+          height: "100%",
+        }}
+      >
+        <CircularProgress />
+      </Box>
     );
   }
 
   if (!thread) {
     return (
-      <AppLayout title="Thread">
-        <EmptyState
-          title="Thread not found"
-          description="The requested thread does not exist."
-        />
-      </AppLayout>
+      <EmptyState
+        title="Thread not found"
+        description="The requested thread does not exist."
+      />
     );
   }
 
   return (
-    <AppLayout title={thread.subject || "Thread"}>
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          overflow: "hidden",
-        }}
-      >
-        <ThreadHeader thread={thread} />
-        <Box sx={{ flex: 1, overflow: "auto" }}>
-          {messagesError && (
-            <Alert severity="error" sx={{ m: 2 }}>
-              {messagesError}
-            </Alert>
-          )}
-          <ThreadView
-            thread={thread}
-            messages={messages}
-            loading={messagesLoading}
-            onDownloadAttachment={(sourceThreadId, attachmentId, filename) =>
-              downloadAttachment(sourceThreadId || threadId, attachmentId, filename)
-            }
-            onFetchAttachment={(sourceThreadId, attachmentId) =>
-              fetchAttachment(sourceThreadId || threadId, attachmentId)
-            }
-          />
-        </Box>
-        <ReplyBar
-          canReplyAll={(thread.participants || []).length > 1}
-          onReply={() => setReplyMode("reply")}
-          onReplyAll={() => setReplyMode("replyAll")}
-          onForward={() => setReplyMode("forward")}
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <ThreadHeader thread={thread} />
+      <Box sx={{ flex: 1, overflow: "auto" }}>
+        {messagesError && (
+          <Alert severity="error" sx={{ m: 2 }}>
+            {messagesError}
+          </Alert>
+        )}
+        <ThreadView
+          thread={thread}
+          messages={messages}
+          loading={messagesLoading}
+          onDownloadAttachment={(sourceThreadId, attachmentId, filename) =>
+            downloadAttachment(sourceThreadId || threadId, attachmentId, filename)
+          }
+          onFetchAttachment={(sourceThreadId, attachmentId) =>
+            fetchAttachment(sourceThreadId || threadId, attachmentId)
+          }
         />
       </Box>
+      <ReplyBar
+        canReplyAll={(thread.participants || []).length > 1}
+        onReply={() => setReplyMode("reply")}
+        onReplyAll={() => setReplyMode("replyAll")}
+        onForward={() => setReplyMode("forward")}
+      />
 
       {replyCtx && (
         <Suspense fallback={null}>
@@ -198,7 +193,7 @@ function ThreadPage() {
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         message="Message sent"
       />
-    </AppLayout>
+    </Box>
   );
 }
 

@@ -98,12 +98,12 @@ const ThreadListItem = ({ thread, isSelected = false, onClick, onPrefetch = unde
             {lastMessage}
           </Typography>
 
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center", ml: 1 }}>
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center", ml: 1, mr: 1.5 }}>
             {hasAttachment && (
               <AttachFileIcon sx={{ fontSize: 16, color: "text.secondary" }} />
             )}
             {unreadCount > 0 && (
-              <Badge badgeContent={unreadCount} color="primary" />
+              <Badge badgeContent={unreadCount} color="primary" sx={{ mr: 1 }} />
             )}
           </Box>
         </Box>
