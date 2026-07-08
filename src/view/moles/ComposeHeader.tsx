@@ -26,7 +26,7 @@ const ComposeHeader = ({ onClose, onSend, title = "New Message", sendLabel = "Se
     if (onClose) {
       onClose();
     } else {
-      navigate("/inbox");
+      navigate("/");
     }
   };
 

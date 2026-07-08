@@ -9,10 +9,7 @@ import { DataProvider } from "./nonview/core/DataContext";
 import LoginPage from "./view/pages/LoginPage";
 import RegisterPage from "./view/pages/RegisterPage";
 import ForgotPasswordPage from "./view/pages/ForgotPasswordPage";
-import InboxPage from "./view/pages/InboxPage";
-import SentPage from "./view/pages/SentPage";
-import DraftsPage from "./view/pages/DraftsPage";
-import TrashPage from "./view/pages/TrashPage";
+import MailPage from "./view/pages/MailPage";
 import ThreadPage from "./view/pages/ThreadPage";
 import ProfilePage from "./view/pages/ProfilePage";
 import NotFoundPage from "./view/pages/NotFoundPage";
@@ -38,83 +35,91 @@ function App() {
       <AuthProvider>
         <DataProvider>
           <ComposeProvider>
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
-            {/* Protected Routes */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Navigate to="/inbox" replace />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/inbox"
-              element={
-                <ProtectedRoute>
-                  <InboxPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/sent"
-              element={
-                <ProtectedRoute>
-                  <SentPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/drafts"
-              element={
-                <ProtectedRoute>
-                  <DraftsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/trash"
-              element={
-                <ProtectedRoute>
-                  <TrashPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/thread/:threadId"
-              element={
-                <ProtectedRoute>
-                  <ThreadPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/compose"
-              element={
-                <ProtectedRoute>
-                  <Suspense fallback={<RouteFallback />}>
-                    <ComposePage />
-                  </Suspense>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/profile"
-              element={
-                <ProtectedRoute>
-                  <ProfilePage />
-                </ProtectedRoute>
-              }
-            />
+              {/* Protected Routes */}
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <MailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/inbox"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/sent"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/drafts"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/trash"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/conversations"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/thread/:threadId"
+                element={
+                  <ProtectedRoute>
+                    <ThreadPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/compose"
+                element={
+                  <ProtectedRoute>
+                    <Suspense fallback={<RouteFallback />}>
+                      <ComposePage />
+                    </Suspense>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/profile"
+                element={
+                  <ProtectedRoute>
+                    <ProfilePage />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* 404 Not Found - catch all */}
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
+              {/* 404 Not Found - catch all */}
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
           </ComposeProvider>
         </DataProvider>
       </AuthProvider>

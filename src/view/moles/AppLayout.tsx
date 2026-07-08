@@ -1,8 +1,6 @@
-import React, { useState } from "react";
-import { Box, useMediaQuery, useTheme } from "@mui/material";
-import Sidebar from "./Sidebar";
+import React from "react";
+import { Box } from "@mui/material";
 import Header from "./Header";
-import MobileNavBar from "./MobileNavBar";
 
 const AppLayout = ({
   children,
@@ -10,16 +8,10 @@ const AppLayout = ({
   titleIcon = null,
   showSearch = false,
   onSearch = null,
+  actions = [],
 }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
   return (
     <Box sx={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      {/* Desktop Sidebar */}
-      {!isMobile && <Sidebar />}
-
       {/* Main Content Area */}
       <Box
         sx={{
@@ -34,9 +26,9 @@ const AppLayout = ({
           title={title}
           titleIcon={titleIcon}
           showBack={false}
-          onMenuClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           showSearch={showSearch}
           onSearch={onSearch}
+          actions={actions}
         />
 
         {/* Page Content */}
@@ -46,14 +38,10 @@ const AppLayout = ({
             flex: 1,
             overflow: "auto",
             backgroundColor: "background.default",
-            pb: isMobile ? "56px" : 0, // Bottom padding for mobile nav bar
           }}
         >
           {children}
         </Box>
-
-        {/* Mobile Bottom Navigation */}
-        {isMobile && <MobileNavBar />}
       </Box>
     </Box>
   );

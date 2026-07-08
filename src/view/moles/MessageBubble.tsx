@@ -49,7 +49,7 @@ const MessageBubble = ({
       error: null,
     });
     try {
-      const blob = await onFetchAttachment(att.id);
+      const blob = await onFetchAttachment(message.sourceThreadId, att.id);
       const url = URL.createObjectURL(blob);
       urlRef.current = url;
       setPreview((p) =>
@@ -73,8 +73,8 @@ const MessageBubble = ({
     <Box
       sx={{
         alignSelf: wide ? "stretch" : isSent ? "flex-end" : "flex-start",
-        backgroundColor: isSent ? "primary.main" : "background.paper",
-        color: isSent ? "primary.contrastText" : "text.primary",
+        backgroundColor: "background.paper",
+        color: "text.primary",
         borderRadius: 2,
         px: 2,
         py: 1.5,
@@ -93,7 +93,7 @@ const MessageBubble = ({
         editable={false}
         onDownload={
           onDownloadAttachment
-            ? (att) => onDownloadAttachment(att.id, att.name)
+            ? (att) => onDownloadAttachment(message.sourceThreadId, att.id, att.name)
             : undefined
         }
         onPreview={onFetchAttachment ? handlePreview : undefined}
@@ -113,7 +113,7 @@ const MessageBubble = ({
         error={preview?.error}
         onDownload={
           onDownloadAttachment && preview
-            ? () => onDownloadAttachment(preview.id, preview.name)
+            ? () => onDownloadAttachment(message.sourceThreadId, preview.id, preview.name)
             : null
         }
       />

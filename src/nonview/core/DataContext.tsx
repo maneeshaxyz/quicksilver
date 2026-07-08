@@ -50,10 +50,12 @@ export interface Thread {
   hasAttachment: boolean;
   mailbox: string;
   uid: number;
+  sourceThreadIds?: string[];
 }
 
 export interface ThreadMessage {
   id: string;
+  sourceThreadId?: string;
   content: string;        // plain-text fallback
   contentHtml?: string;   // raw HTML from the upstream message; render only after sanitisation
   sender: Participant;
@@ -84,6 +86,7 @@ interface EmailData {
 interface DataContextValue {
   mailboxes: Mailbox[];
   threads: Thread[];
+  emailThreads: Thread[];
   sentThreads: Thread[];
   drafts: Thread[];
   trashedThreads: Thread[];
@@ -104,6 +107,7 @@ interface DataContextValue {
   nextPage: (role: string) => Promise<void>;
   prevPage: (role: string) => Promise<void>;
   refresh: () => Promise<void>;
+  refreshActive: () => Promise<void>;
   // Delta-sync just one folder by role ("inbox" | "sent" | "drafts" | "trash").
   refreshFolder: (role: string) => Promise<void>;
   getThread: (id: string) => Thread | undefined;
@@ -150,6 +154,7 @@ const ROLE_NAMES: Record<string, string[]> = {
 
 // How many envelopes to show per page (matches the backend default).
 const PAGE_SIZE = 50;
+const ACTIVE_ROLES = ["inbox", "sent", "drafts"];
 
 // Resolves the actual mailbox names served by the user's provider against
 // well-known role hints (set by the IMAP \\Special-Use flags or, failing that,
@@ -191,6 +196,58 @@ function envelopeToThread(env: Envelope, mailbox: string): Thread {
   };
 }
 
+function normalizeSubject(subject: string): string {
+  const stripped = (subject || "")
+    .replace(/^(\s*(re|fwd|fw)\s*:\s*)+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (stripped || "(no subject)").toLowerCase();
+}
+
+function groupThreadsBySubject(sourceThreads: Thread[]): Thread[] {
+  const groups = new Map<string, Thread[]>();
+  for (const thread of sourceThreads) {
+    const key = normalizeSubject(thread.subject);
+    groups.set(key, [...(groups.get(key) || []), thread]);
+  }
+
+  return Array.from(groups.entries())
+    .map(([key, groupedThreads]) => {
+      const sorted = groupedThreads
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(b.lastMessageTime).getTime() -
+            new Date(a.lastMessageTime).getTime(),
+        );
+      const latest = sorted[0];
+      const participants = new Map<string, Participant>();
+      for (const thread of sorted) {
+        for (const participant of thread.participants || []) {
+          const participantKey = participant.email || participant.id;
+          if (participantKey && !participants.has(participantKey)) {
+            participants.set(participantKey, participant);
+          }
+        }
+      }
+
+      return {
+        ...latest,
+        id: `group:${encodeURIComponent(key)}`,
+        subject: latest.subject || "(No subject)",
+        participants: Array.from(participants.values()),
+        unreadCount: sorted.reduce((count, thread) => count + thread.unreadCount, 0),
+        hasAttachment: sorted.some((thread) => thread.hasAttachment),
+        sourceThreadIds: sorted.map((thread) => thread.id),
+      };
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.lastMessageTime).getTime() -
+        new Date(a.lastMessageTime).getTime(),
+    );
+}
+
 function parseThreadID(id: string): { mailbox: string; uid: number } | null {
   const idx = id.indexOf(":");
   if (idx <= 0) return null;
@@ -204,10 +261,15 @@ function parseThreadID(id: string): { mailbox: string; uid: number } | null {
 // representation — always supplied for screen readers, search, and the case
 // where the recipient blocks HTML rendering — and is derived off the main
 // thread by the parsing worker (see parseBody) before this is called.
-function messageToThreadMessage(m: Message, content: string): ThreadMessage {
+function messageToThreadMessage(
+  m: Message,
+  content: string,
+  sourceThreadId?: string,
+): ThreadMessage {
   const sender = m.from?.[0];
   return {
     id: m.message_id || `msg-${m.uid}`,
+    sourceThreadId,
     content,
     contentHtml: m.body_html || undefined,
     sender: {
@@ -586,6 +648,23 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     }
   }, [loadAll, syncRole]);
 
+  const refreshActive = useCallback(async (): Promise<void> => {
+    if (Object.keys(rolesRef.current).length === 0) {
+      await loadAll();
+      return;
+    }
+    setError(null);
+    const results = await Promise.allSettled(
+      ACTIVE_ROLES.map((role) => syncRole(role)),
+    );
+    const failed = results
+      .map((s, i) => ({ s, role: ACTIVE_ROLES[i] }))
+      .filter(({ s }) => s.status === "rejected");
+    if (failed.length > 0) {
+      setError(`Could not sync: ${failed.map(({ role }) => role).join(", ")}`);
+    }
+  }, [loadAll, syncRole]);
+
   // Keep a live reference to syncRole so the realtime effect can call the
   // latest version without re-subscribing the SSE stream every time syncRole's
   // identity changes (which would needlessly tear down the IMAP IDLE watcher).
@@ -649,24 +728,50 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     [threads, sentThreads, drafts, trashedThreads],
   );
 
+  const emailThreads = useMemo(
+    () => groupThreadsBySubject([...threads, ...sentThreads, ...drafts]),
+    [threads, sentThreads, drafts],
+  );
+
+  const resolveThreadIds = useCallback(
+    (threadId: string): string[] => {
+      const grouped = emailThreads.find((t) => t.id === threadId);
+      return grouped?.sourceThreadIds?.length ? grouped.sourceThreadIds : [threadId];
+    },
+    [emailThreads],
+  );
+
   const getThread = useCallback(
-    (id: string): Thread | undefined => allThreads.find((t) => t.id === id),
-    [allThreads],
+    (id: string): Thread | undefined =>
+      emailThreads.find((t) => t.id === id) || allThreads.find((t) => t.id === id),
+    [allThreads, emailThreads],
   );
 
   const getMessages = useCallback(
     async (threadId: string): Promise<ThreadMessage[]> => {
-      const parsed = parseThreadID(threadId);
-      if (!parsed) return [];
+      const threadIds = resolveThreadIds(threadId);
       // Fetch from the network and refresh the cache. Body text extraction runs
       // in the parsing worker so a large HTML email doesn't jank the read view.
-      const msg = await messagesAPI.get(apiClient, parsed.mailbox, parsed.uid);
-      const content = await parseBody(msg.body_text, msg.body_html);
-      const tm = messageToThreadMessage(msg, content);
-      void writeBody(account, threadId, tm);
-      return [tm];
+      const messages = await Promise.all(
+        threadIds.map(async (sourceThreadId) => {
+          const parsed = parseThreadID(sourceThreadId);
+          if (!parsed) return null;
+          const msg = await messagesAPI.get(apiClient, parsed.mailbox, parsed.uid);
+          const content = await parseBody(msg.body_text, msg.body_html);
+          const tm = messageToThreadMessage(msg, content, sourceThreadId);
+          void writeBody(account, sourceThreadId, tm);
+          return tm;
+        }),
+      );
+      return messages
+        .filter((message): message is ThreadMessage => Boolean(message))
+        .sort(
+          (a, b) =>
+            new Date(a.timestamp).getTime() -
+            new Date(b.timestamp).getTime(),
+        );
     },
-    [apiClient, account],
+    [apiClient, account, resolveThreadIds],
   );
 
   // In-flight prefetch guard: dedupes concurrent prefetch requests for the same
@@ -675,18 +780,25 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const prefetchMessages = useCallback(
     async (threadId: string): Promise<void> => {
-      const parsed = parseThreadID(threadId);
-      // Skip local-only drafts (uid 0) and malformed ids.
-      if (!parsed || parsed.uid <= 0) return;
       if (prefetching.current.has(threadId)) return;
-      // Already cached → nothing to prefetch.
-      if (await readBody(account, threadId)) return;
 
       prefetching.current.add(threadId);
       try {
-        const msg = await messagesAPI.get(apiClient, parsed.mailbox, parsed.uid);
-        const content = await parseBody(msg.body_text, msg.body_html);
-        await writeBody(account, threadId, messageToThreadMessage(msg, content));
+        await Promise.all(
+          resolveThreadIds(threadId).map(async (sourceThreadId) => {
+            const parsed = parseThreadID(sourceThreadId);
+            // Skip local-only drafts (uid 0), malformed ids, and cached bodies.
+            if (!parsed || parsed.uid <= 0) return;
+            if (await readBody(account, sourceThreadId)) return;
+            const msg = await messagesAPI.get(apiClient, parsed.mailbox, parsed.uid);
+            const content = await parseBody(msg.body_text, msg.body_html);
+            await writeBody(
+              account,
+              sourceThreadId,
+              messageToThreadMessage(msg, content, sourceThreadId),
+            );
+          }),
+        );
       } catch {
         // Prefetch is best-effort; a failure just means the real open pays the
         // network cost as usual.
@@ -694,7 +806,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         prefetching.current.delete(threadId);
       }
     },
-    [apiClient, account],
+    [apiClient, account, resolveThreadIds],
   );
 
   const fetchAttachment = useCallback(
@@ -744,10 +856,22 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   // round-trip completes, then revalidate via getMessages.
   const getCachedMessages = useCallback(
     async (threadId: string): Promise<ThreadMessage[] | null> => {
-      const cached = await readBody(account, threadId);
-      return cached ? [cached] : null;
+      const cached = await Promise.all(
+        resolveThreadIds(threadId).map(async (sourceThreadId): Promise<ThreadMessage | null> => {
+          const message = await readBody(account, sourceThreadId);
+          return message ? { ...message, sourceThreadId } : null;
+        }),
+      );
+      const messages = cached
+        .filter((message): message is ThreadMessage => Boolean(message))
+        .sort(
+          (a, b) =>
+            new Date(a.timestamp).getTime() -
+            new Date(b.timestamp).getTime(),
+        );
+      return messages.length ? messages : null;
     },
-    [account],
+    [account, resolveThreadIds],
   );
 
   const sendEmail = useCallback(
@@ -837,35 +961,56 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const markAsRead = useCallback(
     async (threadId: string): Promise<void> => {
-      const parsed = parseThreadID(threadId);
-      if (!parsed) return;
+      const threadIds = resolveThreadIds(threadId);
 
       // Optimistic: clear the unread badge instantly in state and cache.
       setThreads((prev) =>
-        prev.map((t) => (t.id === threadId ? { ...t, unreadCount: 0 } : t)),
+        prev.map((t) => (threadIds.includes(t.id) ? { ...t, unreadCount: 0 } : t)),
       );
-      void patchThread(account, threadId, { unreadCount: 0 });
+      setSentThreads((prev) =>
+        prev.map((t) => (threadIds.includes(t.id) ? { ...t, unreadCount: 0 } : t)),
+      );
+      setDrafts((prev) =>
+        prev.map((t) => (threadIds.includes(t.id) ? { ...t, unreadCount: 0 } : t)),
+      );
+      threadIds.forEach((id) => void patchThread(account, id, { unreadCount: 0 }));
 
       try {
-        await messagesAPI.setFlags(
-          apiClient,
-          parsed.mailbox,
-          parsed.uid,
-          ["\\Seen"],
-          true,
+        await Promise.all(
+          threadIds.map(async (id) => {
+            const parsed = parseThreadID(id);
+            if (!parsed) return;
+            await messagesAPI.setFlags(
+              apiClient,
+              parsed.mailbox,
+              parsed.uid,
+              ["\\Seen"],
+              true,
+            );
+          }),
         );
       } catch (err) {
         // Restore the unread badge if the flag update didn't stick.
         setThreads((prev) =>
           prev.map((t) =>
-            t.id === threadId ? { ...t, unreadCount: 1 } : t,
+            threadIds.includes(t.id) ? { ...t, unreadCount: 1 } : t,
           ),
         );
-        void patchThread(account, threadId, { unreadCount: 1 });
+        setSentThreads((prev) =>
+          prev.map((t) =>
+            threadIds.includes(t.id) ? { ...t, unreadCount: 1 } : t,
+          ),
+        );
+        setDrafts((prev) =>
+          prev.map((t) =>
+            threadIds.includes(t.id) ? { ...t, unreadCount: 1 } : t,
+          ),
+        );
+        threadIds.forEach((id) => void patchThread(account, id, { unreadCount: 1 }));
         throw err;
       }
     },
-    [apiClient, account],
+    [apiClient, account, resolveThreadIds],
   );
 
   const sendMessage = useCallback(
@@ -904,6 +1049,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const value: DataContextValue = {
     mailboxes: mailboxList,
     threads,
+    emailThreads,
     sentThreads,
     drafts,
     trashedThreads,
@@ -919,6 +1065,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     nextPage,
     prevPage,
     refresh,
+    refreshActive,
     refreshFolder,
     getThread,
     getMessages,

@@ -13,7 +13,7 @@ function RegisterPage() {
     setLoading(true);
     try {
       await register(data);
-      navigate("/inbox");
+      navigate("/");
     } catch (error) {
       throw error;
     } finally {

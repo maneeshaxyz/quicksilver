@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Typography } from "@mui/material";
-import InboxIcon from "@mui/icons-material/Inbox";
+import MailOutlineIcon from "@mui/icons-material/MailOutline";
 
 const EmptyState = ({
   icon: CustomIcon = null,
@@ -8,7 +8,7 @@ const EmptyState = ({
   description = null,
   action = null,
 }) => {
-  const Icon = CustomIcon || InboxIcon;
+  const Icon = CustomIcon || MailOutlineIcon;
 
   return (
     <Box

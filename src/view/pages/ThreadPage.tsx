@@ -139,11 +139,11 @@ function ThreadPage() {
             thread={thread}
             messages={messages}
             loading={messagesLoading}
-            onDownloadAttachment={(attachmentId, filename) =>
-              downloadAttachment(threadId, attachmentId, filename)
+            onDownloadAttachment={(sourceThreadId, attachmentId, filename) =>
+              downloadAttachment(sourceThreadId || threadId, attachmentId, filename)
             }
-            onFetchAttachment={(attachmentId) =>
-              fetchAttachment(threadId, attachmentId)
+            onFetchAttachment={(sourceThreadId, attachmentId) =>
+              fetchAttachment(sourceThreadId || threadId, attachmentId)
             }
           />
         </Box>

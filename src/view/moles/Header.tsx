@@ -18,7 +18,7 @@ const Header = ({
   title,
   titleIcon,
   showBack = false,
-  onMenuClick,
+  onMenuClick = null,
   actions = [],
   showSearch = false,
   onSearch,
@@ -41,13 +41,13 @@ const Header = ({
         backgroundColor: "background.paper",
       }}
     >
-      <Toolbar>
+      <Toolbar sx={{ justifyContent: "space-between" }}>
         {/* Title */}
         <Box
           sx={{
             display: "flex",
             alignItems: "center",
-            flexGrow: showSearch ? 0 : 1,
+            flex: 1,
           }}
         >
           {TitleIcon && <TitleIcon sx={{ mr: 1, color: "text.secondary" }} />}
@@ -58,31 +58,39 @@ const Header = ({
 
         {/* Search Bar */}
         {showSearch && (
-          <Box sx={{ flexGrow: 1, mx: 2, maxWidth: 600 }}>
-            <SearchBar onSearch={onSearch} placeholder="Search emails..." />
+          <Box sx={{ flex: 2, display: "flex", justifyContent: "center", mx: 2 }}>
+            <Box sx={{ width: "100%", maxWidth: 600 }}>
+              <SearchBar onSearch={onSearch} placeholder="Search emails..." />
+            </Box>
           </Box>
         )}
 
         {/* Action Buttons */}
-        {actions.map((action, index) => {
-          const ActionIcon = action.icon;
-          return (
-            <IconButton
-              key={index}
-              onClick={action.onClick}
-              aria-label={action.label}
-            >
-              <ActionIcon />
-            </IconButton>
-          );
-        })}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            flex: 1,
+          }}
+        >
+          {actions.map((action, index) => {
+            const ActionIcon = action.icon;
+            return (
+              <IconButton
+                key={index}
+                onClick={action.onClick}
+                aria-label={action.label}
+              >
+                <ActionIcon />
+              </IconButton>
+            );
+          })}
 
-        {/* Profile Avatar (Mobile Only) */}
-        {isMobile && (
           <IconButton
             onClick={() => navigate("/profile")}
             aria-label="profile"
-            sx={{ ml: 1 }}
+            sx={{ ml: isMobile ? 1 : 2 }}
           >
             <Avatar
               sx={{
@@ -95,7 +103,7 @@ const Header = ({
               {getInitials(currentUser?.name || "User")}
             </Avatar>
           </IconButton>
-        )}
+        </Box>
       </Toolbar>
     </AppBar>
   );
