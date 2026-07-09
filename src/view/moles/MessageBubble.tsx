@@ -72,13 +72,13 @@ const MessageBubble = ({
   return (
     <Box
       sx={{
-        alignSelf: wide ? "stretch" : isSent ? "flex-end" : "flex-start",
+        alignSelf: isSent ? "flex-end" : "flex-start",
         backgroundColor: "background.paper",
         color: "text.primary",
         borderRadius: 2,
         px: 2,
         py: 1.5,
-        width: wide ? "100%" : "auto",
+        width: "fit-content",
         maxWidth: wide ? "100%" : "75%",
         minWidth: 0,
         boxShadow: 1,

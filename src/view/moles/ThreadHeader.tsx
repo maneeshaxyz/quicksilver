@@ -6,7 +6,7 @@ import { getInitials } from "../_constants/avatarUtils";
 import ParticipantList from "../atoms/ParticipantList";
 import ThreadActions from "./ThreadActions";
 
-const ThreadHeader = ({ thread, onAction = null }) => {
+const ThreadHeader = ({ thread, onAction = null, onForward = null }) => {
   const navigate = useNavigate();
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
@@ -35,7 +35,7 @@ const ThreadHeader = ({ thread, onAction = null }) => {
         </Avatar>
         <ParticipantList participants={thread?.participants || []} />
       </Box>
-      <ThreadActions threadId={thread?.id} onAction={onAction} />
+      <ThreadActions threadId={thread?.id} onAction={onAction} onForward={onForward} />
     </Box>
   );
 };

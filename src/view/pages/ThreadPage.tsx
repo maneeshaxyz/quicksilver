@@ -13,6 +13,7 @@ const ComposeDialog = lazy(() => import("../moles/ComposeDialog"));
 import { useData } from "../../nonview/core/DataContext";
 import { useAuth } from "../../nonview/core/AuthContext";
 import { buildReplyContext, type ReplyMode } from "../../nonview/core/replyContext";
+import { plainTextToHtml } from "../../nonview/email/plainText";
 
 function ThreadPage() {
   const { threadId } = useParams();
@@ -23,6 +24,7 @@ function ThreadPage() {
     markAsRead,
     downloadAttachment,
     fetchAttachment,
+    sendEmail,
     loading,
   } = useData();
   const { currentUser } = useAuth();
@@ -33,14 +35,71 @@ function ThreadPage() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState(null);
 
-  // Reply/forward compose popup state.
+  // Inline quick-reply draft, typed straight into the reply bar.
+  const [draftText, setDraftText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState(null);
+
+  // Reply/forward compose popup state — only opened via the reply bar's pen
+  // icon (customize) or the Reply all / Forward actions.
   const [replyMode, setReplyMode] = useState<ReplyMode | null>(null);
   const [sentToast, setSentToast] = useState(false);
 
   const replyCtx = useMemo(() => {
     if (!replyMode || !thread) return null;
-    return buildReplyContext(replyMode, thread, messages, currentUser?.email);
-  }, [replyMode, thread, messages, currentUser]);
+    const ctx = buildReplyContext(replyMode, thread, messages, currentUser?.email);
+    // Carry over whatever the user already typed inline into the popup.
+    if (replyMode === "reply" && draftText.trim()) {
+      return { ...ctx, initial: { ...ctx.initial, body: draftText } };
+    }
+    return ctx;
+  }, [replyMode, thread, messages, currentUser, draftText]);
+
+  const appendLocalMessage = (content: string, contentHtml?: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `local-${Date.now()}`,
+        content,
+        contentHtml,
+        sender: {
+          id: "current",
+          name: currentUser?.name || "You",
+          email: currentUser?.email || "",
+        },
+        timestamp: new Date().toISOString(),
+        isRead: true,
+      },
+    ]);
+  };
+
+  // Sends the inline draft as a plain-text reply to the thread's last sender,
+  // without opening the compose popup.
+  const handleQuickSend = async () => {
+    if (!thread || !draftText.trim() || sending) return;
+    const ctx = buildReplyContext("reply", thread, messages, currentUser?.email);
+    const text = draftText.trim();
+    const html = plainTextToHtml(text);
+    setSending(true);
+    setSendError(null);
+    try {
+      await sendEmail({
+        to: ctx.initial.to,
+        subject: ctx.initial.subject,
+        body: ctx.quote ? `${text}\n\n${ctx.quote.text}` : text,
+        bodyHtml: ctx.quote ? html + ctx.quote.html : html,
+        inReplyTo: ctx.threadContext.inReplyTo,
+        references: ctx.threadContext.references,
+      });
+      appendLocalMessage(text);
+      setDraftText("");
+      setSentToast(true);
+    } catch (e) {
+      setSendError(e?.message || "Failed to send reply");
+    } finally {
+      setSending(false);
+    }
+  };
 
   // Fetch the message body once per thread. `getMessages` is memoized in
   // DataContext (deps: [apiClient]), so this effect only re-runs when the
@@ -124,11 +183,16 @@ function ThreadPage() {
         overflow: "hidden",
       }}
     >
-      <ThreadHeader thread={thread} />
+      <ThreadHeader thread={thread} onForward={() => setReplyMode("forward")} />
       <Box sx={{ flex: 1, overflow: "auto" }}>
         {messagesError && (
           <Alert severity="error" sx={{ m: 2 }}>
             {messagesError}
+          </Alert>
+        )}
+        {sendError && (
+          <Alert severity="error" sx={{ m: 2 }} onClose={() => setSendError(null)}>
+            {sendError}
           </Alert>
         )}
         <ThreadView
@@ -145,9 +209,12 @@ function ThreadPage() {
       </Box>
       <ReplyBar
         canReplyAll={(thread.participants || []).length > 1}
-        onReply={() => setReplyMode("reply")}
+        value={draftText}
+        onChange={setDraftText}
+        onSend={handleQuickSend}
+        sending={sending}
+        onCustomize={() => setReplyMode("reply")}
         onReplyAll={() => setReplyMode("replyAll")}
-        onForward={() => setReplyMode("forward")}
       />
 
       {replyCtx && (
@@ -158,24 +225,11 @@ function ThreadPage() {
             onSent={(sent) => {
               setReplyMode(null);
               setSentToast(true);
+              setDraftText("");
               // Optimistically show the sent reply in the open conversation.
               // The real copy lives in the Sent mailbox, so a refetch of this
               // thread wouldn't surface it; append it locally instead.
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: `local-${Date.now()}`,
-                  content: sent.content || "",
-                  contentHtml: sent.contentHtml,
-                  sender: {
-                    id: "current",
-                    name: currentUser?.name || "You",
-                    email: currentUser?.email || "",
-                  },
-                  timestamp: new Date().toISOString(),
-                  isRead: true,
-                },
-              ]);
+              appendLocalMessage(sent.content || "", sent.contentHtml);
             }}
             initial={replyCtx.initial}
             threadContext={replyCtx.threadContext}

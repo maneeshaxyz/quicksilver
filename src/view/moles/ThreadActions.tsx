@@ -4,8 +4,9 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import MarkEmailUnreadIcon from "@mui/icons-material/MarkEmailUnread";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import ArchiveIcon from "@mui/icons-material/Archive";
+import ForwardIcon from "@mui/icons-material/Forward";
 
-const ThreadActions = ({ threadId, onAction }) => {
+const ThreadActions = ({ threadId, onAction, onForward }) => {
   const handleAction = (action) => () => {
     if (onAction) {
       onAction(action, threadId);
@@ -23,6 +24,11 @@ const ThreadActions = ({ threadId, onAction }) => {
       <IconButton aria-label="mark unread" onClick={handleAction("unread")}>
         <MarkEmailUnreadIcon />
       </IconButton>
+      {onForward && (
+        <IconButton aria-label="forward" onClick={onForward}>
+          <ForwardIcon />
+        </IconButton>
+      )}
       <IconButton aria-label="more" onClick={handleAction("more")}>
         <MoreVertIcon />
       </IconButton>
