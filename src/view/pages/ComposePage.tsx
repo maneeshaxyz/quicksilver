@@ -24,11 +24,11 @@ function ComposePage() {
 
   const goBack = () => {
     // navigate(-1) silently no-ops when compose was opened directly or after a
-    // reload (no prior history entry), so fall back to the inbox.
+    // reload (no prior history entry), so fall back to the mail pane.
     if (window.history.length > 1) {
       navigate(-1);
     } else {
-      navigate("/inbox");
+      navigate("/");
     }
   };
 
@@ -37,8 +37,8 @@ function ComposePage() {
       <ComposePanel
         initial={initial}
         onClose={goBack}
-        onSent={() => navigate("/sent")}
-        onSavedDraft={() => navigate("/drafts")}
+        onSent={() => navigate("/")}
+        onSavedDraft={() => navigate("/")}
         /* onSent receives a SentSummary; the page just navigates. */
       />
     </AppLayout>

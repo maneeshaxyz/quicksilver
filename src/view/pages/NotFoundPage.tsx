@@ -12,8 +12,8 @@ import EmptyState from "../atoms/EmptyState";
 function NotFoundPage() {
   const navigate = useNavigate();
 
-  const handleBackToInbox = () => {
-    navigate("/inbox");
+  const handleBackToMail = () => {
+    navigate("/");
   };
 
   return (
@@ -33,8 +33,8 @@ function NotFoundPage() {
         description="The page you're looking for doesn't exist or has been moved."
       />
       <Box sx={{ mt: 3 }}>
-        <Button variant="contained" color="primary" onClick={handleBackToInbox}>
-          Back to Inbox
+        <Button variant="contained" color="primary" onClick={handleBackToMail}>
+          Back to Mail
         </Button>
       </Box>
     </Box>

@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Avatar } from "@mui/material";
 import { getInitials } from "../_constants/avatarUtils";
 import MessageBubble from "./MessageBubble";
+import { useAuth } from "../../nonview/core/AuthContext";
 
 const MessageGroup = ({
   messages = [],
@@ -9,9 +10,11 @@ const MessageGroup = ({
   onDownloadAttachment,
   onFetchAttachment,
 }) => {
+  const { currentUser } = useAuth();
+
   if (!messages.length) return null;
 
-  const isSent = sender?.id === "current";
+  const isSent = sender?.id === "current" || (currentUser?.email && sender?.email === currentUser?.email);
   const senderName = sender?.name || "Unknown";
 
   return (

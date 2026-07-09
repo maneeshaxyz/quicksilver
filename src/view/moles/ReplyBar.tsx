@@ -1,27 +1,43 @@
-import { Box, Button, Stack } from "@mui/material";
-import ReplyIcon from "@mui/icons-material/Reply";
+import type { KeyboardEvent } from "react";
+import { Box, Button, IconButton, InputAdornment, Stack, TextField, Tooltip } from "@mui/material";
 import ReplyAllIcon from "@mui/icons-material/ReplyAll";
-import ForwardIcon from "@mui/icons-material/Forward";
+import EditIcon from "@mui/icons-material/Edit";
+import SendIcon from "@mui/icons-material/Send";
 
 interface ReplyBarProps {
-  onReply: () => void;
+  value: string;
+  onChange: (value: string) => void;
+  onSend: () => void;
+  onCustomize: () => void;
   onReplyAll: () => void;
-  onForward: () => void;
   /** Whether more than one participant makes "Reply all" meaningful. */
   canReplyAll?: boolean;
   placeholder?: string;
+  sending?: boolean;
 }
 
-// Replaces the old inline reply input. Looks like a compose prompt: clicking the
-// prompt (or any action) opens the full compose interface in a popup, prefilled
-// for reply / reply-all / forward.
+// A real text input for a quick plain-text reply, sent inline on Enter/Send.
+// The pen icon beside it opens the full compose popup (recipients, subject,
+// templates, attachments) prefilled with whatever's been typed so far.
 const ReplyBar = ({
-  onReply,
+  value,
+  onChange,
+  onSend,
+  onCustomize,
   onReplyAll,
-  onForward,
   canReplyAll = true,
   placeholder = "Reply to this conversation…",
+  sending = false,
 }: ReplyBarProps) => {
+  const canSend = value.trim().length > 0 && !sending;
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (canSend) onSend();
+    }
+  };
+
   return (
     <Box
       sx={{
@@ -31,44 +47,58 @@ const ReplyBar = ({
         backgroundColor: "background.paper",
         display: "flex",
         flexDirection: { xs: "column", sm: "row" },
-        alignItems: { xs: "stretch", sm: "center" },
+        alignItems: { xs: "stretch", sm: "flex-end" },
         gap: 1.5,
       }}
     >
-      <Box
-        role="button"
-        tabIndex={0}
-        onClick={onReply}
-        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onReply()}
+      <TextField
+        fullWidth
+        multiline
+        maxRows={6}
+        size="small"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        disabled={sending}
         sx={{
           flex: 1,
-          px: 2,
-          py: 1.25,
-          borderRadius: 999,
-          border: 1,
-          borderColor: "divider",
-          color: "text.secondary",
-          cursor: "text",
-          userSelect: "none",
-          transition: "border-color 0.15s ease, background-color 0.15s ease",
-          "&:hover": { borderColor: "primary.main", backgroundColor: "action.hover" },
+          "& .MuiOutlinedInput-root": { borderRadius: 3 },
         }}
-      >
-        {placeholder}
-      </Box>
-      <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
-        <Button variant="contained" startIcon={<ReplyIcon />} onClick={onReply}>
-          Reply
-        </Button>
-        {canReplyAll && (
+        slotProps={{
+          input: {
+            endAdornment: (
+              <InputAdornment position="end" sx={{ alignItems: "flex-start", mt: 0.5 }}>
+                <Tooltip title="Customize (recipients, subject, formatting…)">
+                  <IconButton size="small" onClick={onCustomize} aria-label="Customize reply">
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Send">
+                  <span>
+                    <IconButton
+                      size="small"
+                      color="primary"
+                      onClick={onSend}
+                      disabled={!canSend}
+                      aria-label="Send reply"
+                    >
+                      <SendIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </InputAdornment>
+            ),
+          },
+        }}
+      />
+      {canReplyAll && (
+        <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
           <Button variant="outlined" startIcon={<ReplyAllIcon />} onClick={onReplyAll}>
             Reply all
           </Button>
-        )}
-        <Button variant="text" startIcon={<ForwardIcon />} onClick={onForward}>
-          Forward
-        </Button>
-      </Stack>
+        </Stack>
+      )}
     </Box>
   );
 };

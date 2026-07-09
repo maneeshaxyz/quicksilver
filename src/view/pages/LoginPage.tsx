@@ -13,7 +13,7 @@ function LoginPage() {
     setLoading(true);
     try {
       await login(data.email, data.password);
-      navigate("/inbox");
+      navigate("/");
     } catch (error) {
       throw error;
     } finally {

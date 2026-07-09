@@ -57,6 +57,8 @@ const IFRAME_HTML_HEAD = `
 <style>
   html, body {
     margin: 0; padding: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-size: 14px;
     color: #1a1a1a;
@@ -64,9 +66,16 @@ const IFRAME_HTML_HEAD = `
     word-wrap: break-word;
     overflow-wrap: anywhere;
   }
-  img { max-width: 100%; height: auto; }
-  a { color: #1a73e8; }
-  table { max-width: 100%; }
+  /* Emails routinely hardcode pixel widths (width attrs or inline
+     style="width:600px") on tables/images/divs. !important is required to
+     win over those inline styles and force everything to fit the bubble. */
+  * { box-sizing: border-box; }
+  img { max-width: 100% !important; height: auto !important; }
+  a { color: #1a73e8; word-break: break-all; }
+  table { max-width: 100% !important; width: auto !important; }
+  td, th { max-width: 100%; word-wrap: break-word; overflow-wrap: anywhere; }
+  pre, code { white-space: pre-wrap; word-break: break-word; }
+  div, p, span { max-width: 100%; }
   blockquote {
     margin: 0 0 0 0.75em;
     padding-left: 0.75em;
@@ -102,18 +111,31 @@ const MessageContent: React.FC<MessageContentProps> = ({ content, contentHtml })
   );
 };
 
+// Remembers the last measured height for each srcDoc across remounts. On a
+// thread switch the messages swap and every iframe remounts with a fresh
+// srcDoc; without this the height would reset to the cold-start fallback and
+// flash before regrowing. Keyed by srcDoc so the same email reuses its height.
+const heightCache = new Map<string, number>();
+
 // IsolatedHTML renders sanitized email HTML inside a sandboxed iframe. The
 // sandbox attribute strips JS, top-level navigation, popups, and form
 // submission — defense in depth on top of DOMPurify. The iframe auto-resizes
 // to its content height so it visually behaves like inline content.
 const IsolatedHTML: React.FC<{ html: string }> = ({ html }) => {
   const ref = useRef<HTMLIFrameElement | null>(null);
-  const [height, setHeight] = useState<number>(120);
 
   const srcDoc = useMemo(
     () => `${IFRAME_HTML_HEAD}${html}${IFRAME_HTML_FOOT}`,
     [html],
   );
+
+  // Seed from the cache so a known email renders at its real height instantly;
+  // 40 is a small neutral floor used only when nothing has been measured yet.
+  const [height, setHeight] = useState<number>(() => heightCache.get(srcDoc) ?? 40);
+  // resize() runs in listeners/timeouts that close over the initial render, so
+  // read the latest height from a ref to avoid a stale-closure comparison.
+  const heightRef = useRef(height);
+  heightRef.current = height;
 
   useEffect(() => {
     const iframe = ref.current;
@@ -125,7 +147,12 @@ const IsolatedHTML: React.FC<{ html: string }> = ({ html }) => {
         doc.documentElement.scrollHeight,
         doc.body?.scrollHeight || 0,
       );
-      if (h > 0) setHeight(h);
+      // Only commit meaningful changes so the ResizeObserver + poll safety-net
+      // don't thrash on sub-pixel jitter; cache the result for future remounts.
+      if (h > 0 && Math.abs(h - heightRef.current) > 2) {
+        heightCache.set(srcDoc, h);
+        setHeight(h);
+      }
     };
 
     // If the iframe finished loading before this effect ran (common with
@@ -187,6 +214,8 @@ const IsolatedHTML: React.FC<{ html: string }> = ({ html }) => {
         style={{
           width: "100%",
           height: `${height}px`,
+          // Ease any late resize (e.g. remote images) instead of snapping.
+          transition: "height 120ms ease-out",
           border: 0,
           display: "block",
           backgroundColor: "transparent",

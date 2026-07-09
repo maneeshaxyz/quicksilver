@@ -4,6 +4,8 @@ import MessageContent from "../atoms/MessageContent";
 import MessageMeta from "../atoms/MessageMeta";
 import AttachmentList from "./AttachmentList";
 import AttachmentViewer from "./AttachmentViewer";
+import { isRichHtml } from "../../nonview/email/htmlKind";
+import { stripQuotedText } from "../../nonview/email/quotedText";
 
 const MessageBubble = ({
   message,
@@ -13,7 +15,10 @@ const MessageBubble = ({
 }) => {
   // Full HTML email bodies are documents, not chat messages — they need the
   // whole column width. Plain-text replies stay in the narrow chat-bubble look.
-  const wide = !!message.contentHtml;
+  const rich = isRichHtml(message.contentHtml);
+  // Chat view shows only the new text a reply added, not the quoted original
+  // that replyContext.ts appends before sending.
+  const displayText = rich ? message.content : stripQuotedText(message.content);
 
   // Map the server attachment DTO (id/filename/mime_type/size) onto the shape
   // AttachmentPreview/AttachmentInfo expect (id/name/size).
@@ -49,7 +54,7 @@ const MessageBubble = ({
       error: null,
     });
     try {
-      const blob = await onFetchAttachment(att.id);
+      const blob = await onFetchAttachment(message.sourceThreadId, att.id);
       const url = URL.createObjectURL(blob);
       urlRef.current = url;
       setPreview((p) =>
@@ -72,28 +77,28 @@ const MessageBubble = ({
   return (
     <Box
       sx={{
-        alignSelf: wide ? "stretch" : isSent ? "flex-end" : "flex-start",
-        backgroundColor: isSent ? "primary.main" : "background.paper",
-        color: isSent ? "primary.contrastText" : "text.primary",
+        alignSelf: isSent ? "flex-end" : "flex-start",
+        backgroundColor: "background.paper",
+        color: "text.primary",
         borderRadius: 2,
         px: 2,
         py: 1.5,
-        width: wide ? "100%" : "auto",
-        maxWidth: wide ? "100%" : "75%",
+        width: "fit-content",
+        maxWidth: rich ? "100%" : "75%",
         minWidth: 0,
         boxShadow: 1,
       }}
     >
       <MessageContent
-        content={message.content}
-        contentHtml={message.contentHtml}
+        content={displayText}
+        contentHtml={rich ? message.contentHtml : undefined}
       />
       <AttachmentList
         attachments={attachments}
         editable={false}
         onDownload={
           onDownloadAttachment
-            ? (att) => onDownloadAttachment(att.id, att.name)
+            ? (att) => onDownloadAttachment(message.sourceThreadId, att.id, att.name)
             : undefined
         }
         onPreview={onFetchAttachment ? handlePreview : undefined}
@@ -113,7 +118,7 @@ const MessageBubble = ({
         error={preview?.error}
         onDownload={
           onDownloadAttachment && preview
-            ? () => onDownloadAttachment(preview.id, preview.name)
+            ? () => onDownloadAttachment(message.sourceThreadId, preview.id, preview.name)
             : null
         }
       />
