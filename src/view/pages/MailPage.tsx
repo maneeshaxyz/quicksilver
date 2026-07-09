@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import EditIcon from "@mui/icons-material/Edit";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import { Fab, Box, useMediaQuery, useTheme } from "@mui/material";
@@ -28,15 +28,28 @@ function MailPage() {
 
   const thread = threadId ? getThread(threadId) : undefined;
 
-  const filteredThreads = emailThreads.filter((thread) => {
-    if (!searchQuery) return true;
+  const filteredThreads = useMemo(() => {
+    if (!searchQuery) return emailThreads;
     const query = searchQuery.toLowerCase();
-    return (
-      thread.subject.toLowerCase().includes(query) ||
-      thread.lastMessage.toLowerCase().includes(query) ||
-      thread.participants.some((p) => p.name.toLowerCase().includes(query))
+    return emailThreads.filter(
+      (thread) =>
+        thread.subject.toLowerCase().includes(query) ||
+        thread.lastMessage.toLowerCase().includes(query) ||
+        thread.participants.some((p) => p.name.toLowerCase().includes(query)),
     );
-  });
+  }, [emailThreads, searchQuery]);
+
+  const list = (
+    <ThreadList
+      threads={filteredThreads}
+      loading={loading}
+      emptyMessage={searchQuery ? "No emails match your search" : "No emails yet"}
+      onRefresh={searchQuery ? undefined : refreshActive}
+      live={realtimeConnected}
+      onPrefetch={prefetchMessages}
+      selectedThreadId={threadId}
+    />
+  );
 
   return (
     <AppLayout
@@ -49,17 +62,7 @@ function MailPage() {
       {isDesktop ? (
         <Box sx={{ display: "flex", height: "100%" }}>
           <Box sx={{ width: 350, borderRight: 1, borderColor: "divider", height: "100%", flexShrink: 0 }}>
-            <ThreadList
-              threads={filteredThreads}
-              loading={loading}
-              emptyMessage={
-                searchQuery ? "No emails match your search" : "No emails yet"
-              }
-              onRefresh={searchQuery ? undefined : refreshActive}
-              live={realtimeConnected}
-              onPrefetch={prefetchMessages}
-              selectedThreadId={threadId}
-            />
+            {list}
           </Box>
           <Box sx={{ flex: 1, height: "100%", overflow: "hidden" }}>
             {matchThread ? <Outlet /> : <EmptyState title="Select an email to read" />}
@@ -68,16 +71,7 @@ function MailPage() {
       ) : matchThread ? (
         <Outlet />
       ) : (
-        <ThreadList
-          threads={filteredThreads}
-          loading={loading}
-          emptyMessage={
-            searchQuery ? "No emails match your search" : "No emails yet"
-          }
-          onRefresh={searchQuery ? undefined : refreshActive}
-          live={realtimeConnected}
-          onPrefetch={prefetchMessages}
-        />
+        list
       )}
       {!isDesktop && !matchThread && (
         <Fab

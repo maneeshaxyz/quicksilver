@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Box, CircularProgress, Alert, Snackbar } from "@mui/material";
-import AppLayout from "../moles/AppLayout";
 import ThreadHeader from "../moles/ThreadHeader";
 import ThreadView from "../moles/ThreadView";
 import ReplyBar from "../moles/ReplyBar";

@@ -131,8 +131,6 @@ interface DataContextValue {
   saveDraft: (data: DraftData) => Promise<Thread>;
   deleteThread: (threadId: string) => Promise<void>;
   markAsRead: (threadId: string) => Promise<void>;
-  // legacy alias kept for older components that called sendMessage(threadId, content)
-  sendMessage: (threadId: string, content: string) => Promise<ThreadMessage>;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -204,6 +202,12 @@ function normalizeSubject(subject: string): string {
   return (stripped || "(no subject)").toLowerCase();
 }
 
+const byTimestampAsc = (a: { timestamp: string }, b: { timestamp: string }): number =>
+  new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+
+const byLastMessageDesc = (a: { lastMessageTime: string }, b: { lastMessageTime: string }): number =>
+  new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
+
 function groupThreadsBySubject(sourceThreads: Thread[]): Thread[] {
   const groups = new Map<string, Thread[]>();
   for (const thread of sourceThreads) {
@@ -213,13 +217,7 @@ function groupThreadsBySubject(sourceThreads: Thread[]): Thread[] {
 
   return Array.from(groups.entries())
     .map(([key, groupedThreads]) => {
-      const sorted = groupedThreads
-        .slice()
-        .sort(
-          (a, b) =>
-            new Date(b.lastMessageTime).getTime() -
-            new Date(a.lastMessageTime).getTime(),
-        );
+      const sorted = groupedThreads.slice().sort(byLastMessageDesc);
       const latest = sorted[0];
       const participants = new Map<string, Participant>();
       for (const thread of sorted) {
@@ -241,11 +239,7 @@ function groupThreadsBySubject(sourceThreads: Thread[]): Thread[] {
         sourceThreadIds: sorted.map((thread) => thread.id),
       };
     })
-    .sort(
-      (a, b) =>
-        new Date(b.lastMessageTime).getTime() -
-        new Date(a.lastMessageTime).getTime(),
-    );
+    .sort(byLastMessageDesc);
 }
 
 function parseThreadID(id: string): { mailbox: string; uid: number } | null {
@@ -582,11 +576,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       }
 
       // Keep the newest-first page-0 window.
-      next.sort(
-        (a, b) =>
-          new Date(b.lastMessageTime).getTime() -
-          new Date(a.lastMessageTime).getTime(),
-      );
+      next.sort(byLastMessageDesc);
       if (next.length > PAGE_SIZE) next = next.slice(0, PAGE_SIZE);
 
       set(next);
@@ -733,18 +723,30 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     [threads, sentThreads, drafts],
   );
 
+  // O(1) id lookups — resolveThreadIds/getThread are called on every list
+  // hover (prefetch) and render, so a linear .find() over the full list would
+  // be O(n) per call.
+  const emailThreadsById = useMemo(
+    () => new Map(emailThreads.map((t) => [t.id, t])),
+    [emailThreads],
+  );
+  const threadsById = useMemo(() => {
+    const map = new Map(allThreads.map((t) => [t.id, t]));
+    emailThreads.forEach((t) => map.set(t.id, t));
+    return map;
+  }, [allThreads, emailThreads]);
+
   const resolveThreadIds = useCallback(
     (threadId: string): string[] => {
-      const grouped = emailThreads.find((t) => t.id === threadId);
+      const grouped = emailThreadsById.get(threadId);
       return grouped?.sourceThreadIds?.length ? grouped.sourceThreadIds : [threadId];
     },
-    [emailThreads],
+    [emailThreadsById],
   );
 
   const getThread = useCallback(
-    (id: string): Thread | undefined =>
-      emailThreads.find((t) => t.id === id) || allThreads.find((t) => t.id === id),
-    [allThreads, emailThreads],
+    (id: string): Thread | undefined => threadsById.get(id),
+    [threadsById],
   );
 
   const getMessages = useCallback(
@@ -765,11 +767,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       );
       return messages
         .filter((message): message is ThreadMessage => Boolean(message))
-        .sort(
-          (a, b) =>
-            new Date(a.timestamp).getTime() -
-            new Date(b.timestamp).getTime(),
-        );
+        .sort(byTimestampAsc);
     },
     [apiClient, account, resolveThreadIds],
   );
@@ -864,11 +862,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       );
       const messages = cached
         .filter((message): message is ThreadMessage => Boolean(message))
-        .sort(
-          (a, b) =>
-            new Date(a.timestamp).getTime() -
-            new Date(b.timestamp).getTime(),
-        );
+        .sort(byTimestampAsc);
       return messages.length ? messages : null;
     },
     [account, resolveThreadIds],
@@ -962,17 +956,14 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const markAsRead = useCallback(
     async (threadId: string): Promise<void> => {
       const threadIds = resolveThreadIds(threadId);
+      const ids = new Set(threadIds);
+      const setUnread = (n: number) =>
+        [setThreads, setSentThreads, setDrafts].forEach((set) =>
+          set((prev) => prev.map((t) => (ids.has(t.id) ? { ...t, unreadCount: n } : t))),
+        );
 
       // Optimistic: clear the unread badge instantly in state and cache.
-      setThreads((prev) =>
-        prev.map((t) => (threadIds.includes(t.id) ? { ...t, unreadCount: 0 } : t)),
-      );
-      setSentThreads((prev) =>
-        prev.map((t) => (threadIds.includes(t.id) ? { ...t, unreadCount: 0 } : t)),
-      );
-      setDrafts((prev) =>
-        prev.map((t) => (threadIds.includes(t.id) ? { ...t, unreadCount: 0 } : t)),
-      );
+      setUnread(0);
       threadIds.forEach((id) => void patchThread(account, id, { unreadCount: 0 }));
 
       try {
@@ -991,44 +982,12 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         );
       } catch (err) {
         // Restore the unread badge if the flag update didn't stick.
-        setThreads((prev) =>
-          prev.map((t) =>
-            threadIds.includes(t.id) ? { ...t, unreadCount: 1 } : t,
-          ),
-        );
-        setSentThreads((prev) =>
-          prev.map((t) =>
-            threadIds.includes(t.id) ? { ...t, unreadCount: 1 } : t,
-          ),
-        );
-        setDrafts((prev) =>
-          prev.map((t) =>
-            threadIds.includes(t.id) ? { ...t, unreadCount: 1 } : t,
-          ),
-        );
+        setUnread(1);
         threadIds.forEach((id) => void patchThread(account, id, { unreadCount: 1 }));
         throw err;
       }
     },
     [apiClient, account, resolveThreadIds],
-  );
-
-  const sendMessage = useCallback(
-    async (_threadId: string, content: string): Promise<ThreadMessage> => {
-      // Reply-in-thread isn't wired through SMTP yet; surface the content
-      // back so existing components don't break, and warn in the console.
-      console.warn(
-        "sendMessage is not yet implemented end-to-end; use sendEmail for new mail.",
-      );
-      return {
-        id: `local-${Date.now()}`,
-        content,
-        sender: { id: "current", name: "You", email: "" },
-        timestamp: new Date().toISOString(),
-        isRead: true,
-      };
-    },
-    [],
   );
 
   const unreadCount = useMemo(
@@ -1046,39 +1005,71 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     return Array.from(seen.values());
   }, [threads, sentThreads]);
 
-  const value: DataContextValue = {
-    mailboxes: mailboxList,
-    threads,
-    emailThreads,
-    sentThreads,
-    drafts,
-    trashedThreads,
-    contacts,
-    loading,
-    error,
-    realtimeConnected,
-    unreadCount,
-    page,
-    total,
-    pageLoading,
-    pageSize: PAGE_SIZE,
-    nextPage,
-    prevPage,
-    refresh,
-    refreshActive,
-    refreshFolder,
-    getThread,
-    getMessages,
-    getCachedMessages,
-    prefetchMessages,
-    fetchAttachment,
-    downloadAttachment,
-    sendEmail,
-    saveDraft,
-    deleteThread,
-    markAsRead,
-    sendMessage,
-  };
+  const value = useMemo<DataContextValue>(
+    () => ({
+      mailboxes: mailboxList,
+      threads,
+      emailThreads,
+      sentThreads,
+      drafts,
+      trashedThreads,
+      contacts,
+      loading,
+      error,
+      realtimeConnected,
+      unreadCount,
+      page,
+      total,
+      pageLoading,
+      pageSize: PAGE_SIZE,
+      nextPage,
+      prevPage,
+      refresh,
+      refreshActive,
+      refreshFolder,
+      getThread,
+      getMessages,
+      getCachedMessages,
+      prefetchMessages,
+      fetchAttachment,
+      downloadAttachment,
+      sendEmail,
+      saveDraft,
+      deleteThread,
+      markAsRead,
+    }),
+    [
+      mailboxList,
+      threads,
+      emailThreads,
+      sentThreads,
+      drafts,
+      trashedThreads,
+      contacts,
+      loading,
+      error,
+      realtimeConnected,
+      unreadCount,
+      page,
+      total,
+      pageLoading,
+      nextPage,
+      prevPage,
+      refresh,
+      refreshActive,
+      refreshFolder,
+      getThread,
+      getMessages,
+      getCachedMessages,
+      prefetchMessages,
+      fetchAttachment,
+      downloadAttachment,
+      sendEmail,
+      saveDraft,
+      deleteThread,
+      markAsRead,
+    ],
+  );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
