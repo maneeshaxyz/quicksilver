@@ -57,6 +57,8 @@ const IFRAME_HTML_HEAD = `
 <style>
   html, body {
     margin: 0; padding: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-size: 14px;
     color: #1a1a1a;
@@ -64,9 +66,16 @@ const IFRAME_HTML_HEAD = `
     word-wrap: break-word;
     overflow-wrap: anywhere;
   }
-  img { max-width: 100%; height: auto; }
-  a { color: #1a73e8; }
-  table { max-width: 100%; }
+  /* Emails routinely hardcode pixel widths (width attrs or inline
+     style="width:600px") on tables/images/divs. !important is required to
+     win over those inline styles and force everything to fit the bubble. */
+  * { box-sizing: border-box; }
+  img { max-width: 100% !important; height: auto !important; }
+  a { color: #1a73e8; word-break: break-all; }
+  table { max-width: 100% !important; width: auto !important; }
+  td, th { max-width: 100%; word-wrap: break-word; overflow-wrap: anywhere; }
+  pre, code { white-space: pre-wrap; word-break: break-word; }
+  div, p, span { max-width: 100%; }
   blockquote {
     margin: 0 0 0 0.75em;
     padding-left: 0.75em;
