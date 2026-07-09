@@ -102,18 +102,31 @@ const MessageContent: React.FC<MessageContentProps> = ({ content, contentHtml })
   );
 };
 
+// Remembers the last measured height for each srcDoc across remounts. On a
+// thread switch the messages swap and every iframe remounts with a fresh
+// srcDoc; without this the height would reset to the cold-start fallback and
+// flash before regrowing. Keyed by srcDoc so the same email reuses its height.
+const heightCache = new Map<string, number>();
+
 // IsolatedHTML renders sanitized email HTML inside a sandboxed iframe. The
 // sandbox attribute strips JS, top-level navigation, popups, and form
 // submission — defense in depth on top of DOMPurify. The iframe auto-resizes
 // to its content height so it visually behaves like inline content.
 const IsolatedHTML: React.FC<{ html: string }> = ({ html }) => {
   const ref = useRef<HTMLIFrameElement | null>(null);
-  const [height, setHeight] = useState<number>(120);
 
   const srcDoc = useMemo(
     () => `${IFRAME_HTML_HEAD}${html}${IFRAME_HTML_FOOT}`,
     [html],
   );
+
+  // Seed from the cache so a known email renders at its real height instantly;
+  // 40 is a small neutral floor used only when nothing has been measured yet.
+  const [height, setHeight] = useState<number>(() => heightCache.get(srcDoc) ?? 40);
+  // resize() runs in listeners/timeouts that close over the initial render, so
+  // read the latest height from a ref to avoid a stale-closure comparison.
+  const heightRef = useRef(height);
+  heightRef.current = height;
 
   useEffect(() => {
     const iframe = ref.current;
@@ -125,7 +138,12 @@ const IsolatedHTML: React.FC<{ html: string }> = ({ html }) => {
         doc.documentElement.scrollHeight,
         doc.body?.scrollHeight || 0,
       );
-      if (h > 0) setHeight(h);
+      // Only commit meaningful changes so the ResizeObserver + poll safety-net
+      // don't thrash on sub-pixel jitter; cache the result for future remounts.
+      if (h > 0 && Math.abs(h - heightRef.current) > 2) {
+        heightCache.set(srcDoc, h);
+        setHeight(h);
+      }
     };
 
     // If the iframe finished loading before this effect ran (common with
@@ -187,6 +205,8 @@ const IsolatedHTML: React.FC<{ html: string }> = ({ html }) => {
         style={{
           width: "100%",
           height: `${height}px`,
+          // Ease any late resize (e.g. remote images) instead of snapping.
+          transition: "height 120ms ease-out",
           border: 0,
           display: "block",
           backgroundColor: "transparent",

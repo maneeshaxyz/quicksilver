@@ -4,6 +4,8 @@ import MessageContent from "../atoms/MessageContent";
 import MessageMeta from "../atoms/MessageMeta";
 import AttachmentList from "./AttachmentList";
 import AttachmentViewer from "./AttachmentViewer";
+import { isRichHtml } from "../../nonview/email/htmlKind";
+import { stripQuotedText } from "../../nonview/email/quotedText";
 
 const MessageBubble = ({
   message,
@@ -13,7 +15,10 @@ const MessageBubble = ({
 }) => {
   // Full HTML email bodies are documents, not chat messages — they need the
   // whole column width. Plain-text replies stay in the narrow chat-bubble look.
-  const wide = !!message.contentHtml;
+  const rich = isRichHtml(message.contentHtml);
+  // Chat view shows only the new text a reply added, not the quoted original
+  // that replyContext.ts appends before sending.
+  const displayText = rich ? message.content : stripQuotedText(message.content);
 
   // Map the server attachment DTO (id/filename/mime_type/size) onto the shape
   // AttachmentPreview/AttachmentInfo expect (id/name/size).
@@ -79,14 +84,14 @@ const MessageBubble = ({
         px: 2,
         py: 1.5,
         width: "fit-content",
-        maxWidth: wide ? "100%" : "75%",
+        maxWidth: rich ? "100%" : "75%",
         minWidth: 0,
         boxShadow: 1,
       }}
     >
       <MessageContent
-        content={message.content}
-        contentHtml={message.contentHtml}
+        content={displayText}
+        contentHtml={rich ? message.contentHtml : undefined}
       />
       <AttachmentList
         attachments={attachments}
