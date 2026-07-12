@@ -775,6 +775,57 @@ func (c *Client) Move(ctx context.Context, mailbox string, uid uint32, dest stri
 	return nil
 }
 
+// Delete permanently removes the message from the mailbox: flags it \Deleted
+// and expunges. No trash copy is made — this is the "empty from Trash" path.
+// Plain EXPUNGE also removes any other messages already flagged \Deleted in
+// the mailbox, which matches standard IMAP client behaviour.
+func (c *Client) Delete(ctx context.Context, mailbox string, uid uint32) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.ensureLive(ctx); err != nil {
+		return err
+	}
+	if err := c.selectMailbox(mailbox, false); err != nil {
+		return err
+	}
+	seq := new(imap.SeqSet)
+	seq.AddNum(uid)
+	if err := c.conn.UidStore(seq, imap.FormatFlagsOp(imap.AddFlags, true), []any{imap.DeletedFlag}, nil); err != nil {
+		return fmt.Errorf("mark deleted: %w", err)
+	}
+	if err := c.conn.Expunge(nil); err != nil {
+		return fmt.Errorf("expunge: %w", err)
+	}
+	return nil
+}
+
+// FindByMessageID returns the UID of the message carrying the given
+// Message-ID header, or ErrNotFound. Used to relocate a message after a
+// cross-mailbox move (MOVE responses don't surface the destination UID), e.g.
+// to restore or permanently delete a message that was just moved to Trash.
+func (c *Client) FindByMessageID(ctx context.Context, mailbox, messageID string) (uint32, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.ensureLive(ctx); err != nil {
+		return 0, err
+	}
+	if err := c.selectMailbox(mailbox, true); err != nil {
+		return 0, err
+	}
+	criteria := imap.NewSearchCriteria()
+	criteria.Header.Add("Message-Id", messageID)
+	uids, err := c.conn.UidSearch(criteria)
+	if err != nil {
+		return 0, fmt.Errorf("uid search: %w", err)
+	}
+	if len(uids) == 0 {
+		return 0, ErrNotFound
+	}
+	// HEADER search is a substring match; on the off chance of multiple hits,
+	// the newest (highest UID) is the message that just arrived in the folder.
+	return uids[len(uids)-1], nil
+}
+
 func contextDeadline(ctx context.Context, fallback time.Duration) (time.Time, context.CancelFunc) {
 	if d, ok := ctx.Deadline(); ok {
 		return d, func() {}

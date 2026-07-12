@@ -51,6 +51,11 @@ export interface Thread {
   mailbox: string;
   uid: number;
   sourceThreadIds?: string[];
+  // Source-level: this row came from the Trash folder listing.
+  inTrash?: boolean;
+  // Group-level: every source of this conversation is in Trash — the list
+  // row shows it in its trashed state instead of dropping it.
+  isTrashed?: boolean;
 }
 
 export interface ThreadMessage {
@@ -59,9 +64,16 @@ export interface ThreadMessage {
   content: string;        // plain-text fallback
   contentHtml?: string;   // raw HTML from the upstream message; render only after sanitisation
   sender: Participant;
+  // Addressing details for the participant hover-card. Bcc is not exposed by
+  // IMAP for received mail, so only To/Cc are available.
+  to?: Participant[];
+  cc?: Participant[];
   timestamp: string;
   isRead: boolean;
   attachments?: AttachmentMeta[]; // downloadable attachment metadata (no bytes)
+  // UI-side "in Trash" marker: the message was moved to Trash but stays
+  // visible in the open conversation so it can be restored or purged.
+  deleted?: boolean;
 }
 
 interface DraftData {
@@ -130,7 +142,17 @@ interface DataContextValue {
   sendEmail: (data: EmailData) => Promise<{ status: string }>;
   saveDraft: (data: DraftData) => Promise<Thread>;
   deleteThread: (threadId: string) => Promise<void>;
+  // Move one source thread ("mailbox:uid") to the account's Archive folder.
+  // Rejects if the provider exposes no archive mailbox.
+  archiveThread: (threadId: string) => Promise<void>;
+  // Move a trashed message (looked up in Trash by its Message-ID header)
+  // back to the inbox.
+  restoreMessage: (messageId: string) => Promise<void>;
+  // Permanently expunge a trashed message. Irreversible.
+  deleteMessagePermanently: (messageId: string) => Promise<void>;
   markAsRead: (threadId: string) => Promise<void>;
+  // Clear \Seen on one source thread ("mailbox:uid"), restoring its unread badge.
+  markAsUnread: (threadId: string) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -148,6 +170,7 @@ const ROLE_NAMES: Record<string, string[]> = {
   sent: ["Sent", "Sent Items", "[Gmail]/Sent Mail"],
   drafts: ["Drafts", "[Gmail]/Drafts"],
   trash: ["Trash", "Deleted Items", "[Gmail]/Trash"],
+  archive: ["Archive", "Archives", "All Mail", "[Gmail]/All Mail"],
 };
 
 // How many envelopes to show per page (matches the backend default).
@@ -237,6 +260,7 @@ function groupThreadsBySubject(sourceThreads: Thread[]): Thread[] {
         unreadCount: sorted.reduce((count, thread) => count + thread.unreadCount, 0),
         hasAttachment: sorted.some((thread) => thread.hasAttachment),
         sourceThreadIds: sorted.map((thread) => thread.id),
+        isTrashed: sorted.every((thread) => thread.inTrash),
       };
     })
     .sort(byLastMessageDesc);
@@ -249,6 +273,15 @@ function parseThreadID(id: string): { mailbox: string; uid: number } | null {
   const uid = Number(id.slice(idx + 1));
   if (!Number.isFinite(uid)) return null;
   return { mailbox, uid };
+}
+
+function addressesToParticipants(addrs?: Address[]): Participant[] | undefined {
+  if (!addrs || addrs.length === 0) return undefined;
+  return addrs.map((a, i) => ({
+    id: a.email || `addr-${i}`,
+    name: a.name || a.email || "",
+    email: a.email || "",
+  }));
 }
 
 // Builds the UI-facing message from the API DTO. `content` is the plain-text
@@ -271,6 +304,8 @@ function messageToThreadMessage(
       name: sender?.name || sender?.email || "Unknown",
       email: sender?.email || "",
     },
+    to: addressesToParticipants(m.to),
+    cc: addressesToParticipants(m.cc),
     timestamp: m.date,
     isRead: (m.flags || []).includes("\\Seen"),
     attachments: m.attachments && m.attachments.length ? m.attachments : undefined,
@@ -718,9 +753,17 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     [threads, sentThreads, drafts, trashedThreads],
   );
 
+  // Trash sources join the grouped list (tagged) so deleting a message keeps
+  // its conversation visible in the mail view, shown in a trashed state.
   const emailThreads = useMemo(
-    () => groupThreadsBySubject([...threads, ...sentThreads, ...drafts]),
-    [threads, sentThreads, drafts],
+    () =>
+      groupThreadsBySubject([
+        ...threads,
+        ...sentThreads,
+        ...drafts,
+        ...trashedThreads.map((t) => ({ ...t, inTrash: true })),
+      ]),
+    [threads, sentThreads, drafts, trashedThreads],
   );
 
   // O(1) id lookups — resolveThreadIds/getThread are called on every list
@@ -754,6 +797,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       const threadIds = resolveThreadIds(threadId);
       // Fetch from the network and refresh the cache. Body text extraction runs
       // in the parsing worker so a large HTML email doesn't jank the read view.
+      const trashName = rolesRef.current.trash || "Trash";
       const messages = await Promise.all(
         threadIds.map(async (sourceThreadId) => {
           const parsed = parseThreadID(sourceThreadId);
@@ -761,6 +805,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           const msg = await messagesAPI.get(apiClient, parsed.mailbox, parsed.uid);
           const content = await parseBody(msg.body_text, msg.body_html);
           const tm = messageToThreadMessage(msg, content, sourceThreadId);
+          // A message sourced from the Trash folder renders in its "In Trash"
+          // state (restorable / purgeable) instead of as a normal message.
+          if (parsed.mailbox === trashName) tm.deleted = true;
           void writeBody(account, sourceThreadId, tm);
           return tm;
         }),
@@ -854,10 +901,17 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   // round-trip completes, then revalidate via getMessages.
   const getCachedMessages = useCallback(
     async (threadId: string): Promise<ThreadMessage[] | null> => {
+      const trashName = rolesRef.current.trash || "Trash";
       const cached = await Promise.all(
         resolveThreadIds(threadId).map(async (sourceThreadId): Promise<ThreadMessage | null> => {
           const message = await readBody(account, sourceThreadId);
-          return message ? { ...message, sourceThreadId } : null;
+          if (!message) return null;
+          const parsed = parseThreadID(sourceThreadId);
+          return {
+            ...message,
+            sourceThreadId,
+            deleted: parsed?.mailbox === trashName || undefined,
+          };
         }),
       );
       const messages = cached
@@ -930,8 +984,35 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       if (!parsed) return;
       const trash = rolesRef.current.trash || "Trash";
 
-      // Optimistic: remove from the list (and cache) immediately, then call the
-      // server. Snapshot first so we can roll back if the delete fails.
+      await messagesAPI.remove(apiClient, parsed.mailbox, parsed.uid, trash);
+      // The message now lives in Trash. Re-sync the source folder (the row
+      // leaves it) and Trash (the row joins it) — because trash sources feed
+      // the grouped list, the conversation stays visible in its trashed state
+      // rather than disappearing.
+      const entry = Object.entries(rolesRef.current).find(
+        ([, name]) => name === parsed.mailbox,
+      );
+      await Promise.allSettled([
+        syncRole(entry ? entry[0] : "inbox"),
+        syncRole("trash"),
+      ]);
+    },
+    [apiClient, syncRole],
+  );
+
+  // Move one source thread to the Archive mailbox. Same optimistic pattern as
+  // deleteThread: drop the row immediately, roll back if the server move fails.
+  const archiveThread = useCallback(
+    async (threadId: string): Promise<void> => {
+      const parsed = parseThreadID(threadId);
+      if (!parsed) return;
+      const archive =
+        rolesRef.current.archive ||
+        mailboxList.find((m) => m.role === "archive")?.name;
+      if (!archive) {
+        throw new Error("This account has no archive folder");
+      }
+
       const snapshot = { threads, sentThreads, drafts };
       const remove = (list: Thread[]) => list.filter((t) => t.id !== threadId);
       setThreads(remove);
@@ -940,9 +1021,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       void removeThread(account, threadId);
 
       try {
-        await messagesAPI.remove(apiClient, parsed.mailbox, parsed.uid, trash);
+        await messagesAPI.remove(apiClient, parsed.mailbox, parsed.uid, archive);
       } catch (err) {
-        // Roll back to the pre-delete state on failure.
         setThreads(snapshot.threads);
         setSentThreads(snapshot.sentThreads);
         setDrafts(snapshot.drafts);
@@ -950,7 +1030,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         throw err;
       }
     },
-    [apiClient, account, threads, sentThreads, drafts],
+    [apiClient, account, mailboxList, threads, sentThreads, drafts],
   );
 
   const markAsRead = useCallback(
@@ -958,7 +1038,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       const threadIds = resolveThreadIds(threadId);
       const ids = new Set(threadIds);
       const setUnread = (n: number) =>
-        [setThreads, setSentThreads, setDrafts].forEach((set) =>
+        [setThreads, setSentThreads, setDrafts, setTrashedThreads].forEach((set) =>
           set((prev) => prev.map((t) => (ids.has(t.id) ? { ...t, unreadCount: n } : t))),
         );
 
@@ -988,6 +1068,66 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       }
     },
     [apiClient, account, resolveThreadIds],
+  );
+
+  // Move a trashed message back to the inbox. The message's UID changed when
+  // it was moved to Trash, so it's located there by Message-ID first; the
+  // generic move endpoint then carries it to the inbox. Both folders are
+  // re-synced so the restored row reappears in the list.
+  const restoreMessage = useCallback(
+    async (messageId: string): Promise<void> => {
+      const trash = rolesRef.current.trash || "Trash";
+      const inbox = rolesRef.current.inbox || "INBOX";
+      const { uid } = await messagesAPI.find(apiClient, trash, messageId);
+      await messagesAPI.remove(apiClient, trash, uid, inbox);
+      await Promise.allSettled([syncRole("inbox"), syncRole("trash")]);
+    },
+    [apiClient, syncRole],
+  );
+
+  // Permanently expunge a trashed message. Irreversible — callers should
+  // confirm with the user first.
+  const deleteMessagePermanently = useCallback(
+    async (messageId: string): Promise<void> => {
+      const trash = rolesRef.current.trash || "Trash";
+      const { uid } = await messagesAPI.find(apiClient, trash, messageId);
+      await messagesAPI.removePermanent(apiClient, trash, uid);
+      void syncRole("trash");
+    },
+    [apiClient, syncRole],
+  );
+
+  // Clear \Seen on one source thread, restoring its unread badge. Optimistic,
+  // mirroring markAsRead.
+  const markAsUnread = useCallback(
+    async (threadId: string): Promise<void> => {
+      const parsed = parseThreadID(threadId);
+      if (!parsed || parsed.uid <= 0) return;
+      const setUnread = (n: number) =>
+        [setThreads, setSentThreads, setDrafts, setTrashedThreads].forEach((set) =>
+          set((prev) =>
+            prev.map((t) => (t.id === threadId ? { ...t, unreadCount: n } : t)),
+          ),
+        );
+
+      setUnread(1);
+      void patchThread(account, threadId, { unreadCount: 1 });
+
+      try {
+        await messagesAPI.setFlags(
+          apiClient,
+          parsed.mailbox,
+          parsed.uid,
+          ["\\Seen"],
+          false,
+        );
+      } catch (err) {
+        setUnread(0);
+        void patchThread(account, threadId, { unreadCount: 0 });
+        throw err;
+      }
+    },
+    [apiClient, account],
   );
 
   const unreadCount = useMemo(
@@ -1036,7 +1176,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       sendEmail,
       saveDraft,
       deleteThread,
+      archiveThread,
+      restoreMessage,
+      deleteMessagePermanently,
       markAsRead,
+      markAsUnread,
     }),
     [
       mailboxList,
@@ -1067,7 +1211,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       sendEmail,
       saveDraft,
       deleteThread,
+      archiveThread,
+      restoreMessage,
+      deleteMessagePermanently,
       markAsRead,
+      markAsUnread,
     ],
   );
 

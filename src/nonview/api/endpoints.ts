@@ -103,11 +103,29 @@ export const messages = {
       { flags, add },
     );
   },
+  // Moves the message to `trash` (any destination mailbox — also used to
+  // restore from Trash back to INBOX).
   remove(client: APIClient, mailbox: string, uid: number, trash?: string) {
     const body = trash ? { trash } : undefined;
     return client.delete<{ status: string }>(
       `${v1}/mailboxes/${encodeURIComponent(mailbox)}/messages/${uid}`,
       body,
+    );
+  },
+  // Permanently expunges the message — no trash copy. Irreversible.
+  removePermanent(client: APIClient, mailbox: string, uid: number) {
+    return client.delete<{ status: string }>(
+      `${v1}/mailboxes/${encodeURIComponent(mailbox)}/messages/${uid}`,
+      { permanent: true },
+    );
+  },
+  // Looks up a message's UID in a mailbox by its Message-ID header. Needed to
+  // target a message again after a cross-mailbox move (the move response
+  // doesn't carry the destination UID).
+  find(client: APIClient, mailbox: string, messageId: string, signal?: AbortSignal) {
+    return client.get<{ uid: number }>(
+      `${v1}/mailboxes/${encodeURIComponent(mailbox)}/messages/find?message_id=${encodeURIComponent(messageId)}`,
+      signal,
     );
   },
 };

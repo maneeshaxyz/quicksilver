@@ -45,11 +45,18 @@ func TestIssuerRejectsShortSecret(t *testing.T) {
 func TestVerifyRejectsTamperedToken(t *testing.T) {
 	i := newTestIssuer(t)
 	tok, _, _ := i.Issue("sess-abc", "user@example.com")
-	// flip the last byte of the signature
-	tampered := tok[:len(tok)-1] + "x"
-	if tampered == tok {
-		tampered = tok[:len(tok)-1] + "y"
+	// Flip the second-to-last byte of the signature. Not the last one: a
+	// 32-byte HMAC encodes to 43 base64url chars whose final char carries two
+	// padding bits that lenient decoders ignore, so replacing only it can
+	// decode to the identical signature and (correctly) still verify. Every
+	// bit of the second-to-last char is significant, so any change there is a
+	// real tamper.
+	idx := len(tok) - 2
+	repl := byte('A')
+	if tok[idx] == 'A' {
+		repl = 'B'
 	}
+	tampered := tok[:idx] + string(repl) + tok[idx+1:]
 	if _, err := i.Verify(tampered); err == nil {
 		t.Fatal("expected verification to fail on tampered token")
 	}

@@ -204,9 +204,13 @@ func (h *Messages) SetFlags(w http.ResponseWriter, r *http.Request) {
 
 type deleteRequest struct {
 	Trash string `json:"trash"`
+	// Permanent skips the trash move and expunges the message in place —
+	// the "delete from Trash forever" path.
+	Permanent bool `json:"permanent"`
 }
 
-// Delete moves the message to the Trash mailbox.
+// Delete moves the message to the Trash mailbox, or — with {"permanent":true}
+// — expunges it in place.
 //
 // The destination defaults to "Trash"; clients may override via body to support
 // providers using a localised or non-standard trash folder name.
@@ -227,10 +231,14 @@ func (h *Messages) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dest := "Trash"
+	permanent := false
 	if r.ContentLength > 0 {
 		var req deleteRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4*1024)).Decode(&req); err == nil && req.Trash != "" {
-			dest = req.Trash
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4*1024)).Decode(&req); err == nil {
+			if req.Trash != "" {
+				dest = req.Trash
+			}
+			permanent = req.Permanent
 		}
 	}
 	c, err := h.Sessions.IMAPFor(r.Context(), sess)
@@ -238,11 +246,52 @@ func (h *Messages) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.Logger, httpx.NewAPIError(http.StatusBadGateway, httpx.CodeUpstreamFailed, "imap connect", err))
 		return
 	}
-	if err := c.Move(r.Context(), mailbox, uint32(uid), dest); err != nil {
+	if permanent {
+		if err := c.Delete(r.Context(), mailbox, uint32(uid)); err != nil {
+			httpx.WriteError(w, r, h.Logger, httpx.NewAPIError(http.StatusBadGateway, httpx.CodeUpstreamFailed, "permanent delete", err))
+			return
+		}
+	} else if err := c.Move(r.Context(), mailbox, uint32(uid), dest); err != nil {
 		httpx.WriteError(w, r, h.Logger, httpx.NewAPIError(http.StatusBadGateway, httpx.CodeUpstreamFailed, "move to trash", err))
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// Find returns the UID of the message carrying the given Message-ID header in
+// a mailbox. Clients use it to relocate a message after a cross-mailbox move
+// (e.g. to restore or permanently delete a message just moved to Trash).
+func (h *Messages) Find(w http.ResponseWriter, r *http.Request) {
+	sess, ok := middleware.SessionFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.Logger, httpx.NewAPIError(http.StatusUnauthorized, httpx.CodeUnauthorized, "no session", nil))
+		return
+	}
+	mailbox, err := url.PathUnescape(chi.URLParam(r, "mailbox"))
+	if err != nil || mailbox == "" {
+		httpx.WriteError(w, r, h.Logger, httpx.NewAPIError(http.StatusBadRequest, httpx.CodeBadRequest, "invalid mailbox name", err))
+		return
+	}
+	messageID := r.URL.Query().Get("message_id")
+	if messageID == "" {
+		httpx.WriteError(w, r, h.Logger, httpx.NewAPIError(http.StatusBadRequest, httpx.CodeBadRequest, "missing message_id", nil))
+		return
+	}
+	c, err := h.Sessions.IMAPFor(r.Context(), sess)
+	if err != nil {
+		httpx.WriteError(w, r, h.Logger, httpx.NewAPIError(http.StatusBadGateway, httpx.CodeUpstreamFailed, "imap connect", err))
+		return
+	}
+	uid, err := c.FindByMessageID(r.Context(), mailbox, messageID)
+	if err != nil {
+		if errors.Is(err, himap.ErrNotFound) {
+			httpx.WriteError(w, r, h.Logger, httpx.NewAPIError(http.StatusNotFound, httpx.CodeNotFound, "message not found", nil))
+			return
+		}
+		httpx.WriteError(w, r, h.Logger, httpx.NewAPIError(http.StatusBadGateway, httpx.CodeUpstreamFailed, "search message", err))
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]uint32{"uid": uid})
 }
 
 type sendRequest struct {

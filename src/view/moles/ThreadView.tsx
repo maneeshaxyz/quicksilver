@@ -26,6 +26,7 @@ const ThreadView = ({
   loading = false,
   onDownloadAttachment,
   onFetchAttachment,
+  onMessageAction = undefined,
 }) => {
   if (loading) {
     return <MessageSkeleton />;
@@ -60,6 +61,7 @@ const ThreadView = ({
           sender={group.sender}
           onDownloadAttachment={onDownloadAttachment}
           onFetchAttachment={onFetchAttachment}
+          onMessageAction={onMessageAction}
         />
       ))}
     </Box>

@@ -3,6 +3,7 @@ import { Box, Typography, Avatar } from "@mui/material";
 import { getInitials, getAvatarColor } from "../_constants/avatarUtils";
 import Timestamp from "../atoms/Timestamp";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 
 const ThreadListItem = ({ thread, isSelected = false, onClick, onPrefetch = undefined }) => {
   const {
@@ -13,6 +14,7 @@ const ThreadListItem = ({ thread, isSelected = false, onClick, onPrefetch = unde
     lastMessageTime,
     unreadCount,
     hasAttachment,
+    isTrashed,
   } = thread;
 
   const participantName = participants?.[0]?.name || "Unknown";
@@ -59,8 +61,8 @@ const ThreadListItem = ({ thread, isSelected = false, onClick, onPrefetch = unde
         {getInitials(participantName)}
       </Avatar>
 
-      {/* Thread Content */}
-      <Box sx={{ flex: 1, minWidth: 0 }}>
+      {/* Thread Content — dimmed when the whole conversation sits in Trash. */}
+      <Box sx={{ flex: 1, minWidth: 0, opacity: isTrashed ? 0.7 : 1 }}>
         {/* First Row: Participant Name and Timestamp */}
         <Box
           sx={{
@@ -126,6 +128,12 @@ const ThreadListItem = ({ thread, isSelected = false, onClick, onPrefetch = unde
           </Typography>
 
           <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexShrink: 0 }}>
+            {isTrashed && (
+              <DeleteOutlineIcon
+                titleAccess="In Trash"
+                sx={{ fontSize: 16, color: "error.main" }}
+              />
+            )}
             {hasAttachment && (
               <AttachFileIcon sx={{ fontSize: 16, color: "text.secondary" }} />
             )}
